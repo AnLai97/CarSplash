@@ -10,7 +10,7 @@
 #import <objc/runtime.h>
 #import <rootless.h>
 
-#define kPrefsDomain CFSTR("com.innova.carsplash")
+#define kPrefsDomain CFSTR("com.anlai.carsplash")
 #define kVideosDir   ROOT_PATH_NS(@"/var/mobile/Library/CarSplash/Videos")
 
 static const NSTimeInterval kFadeDuration = 0.4;

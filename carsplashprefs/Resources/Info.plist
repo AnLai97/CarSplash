@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>CarSplashPrefs</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.innova.carsplash.prefs</string>
+	<string>com.anlai.carsplash.prefs</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundlePackageType</key>

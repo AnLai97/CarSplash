@@ -22,7 +22,7 @@
 			<key>default</key>
 			<true/>
 			<key>defaults</key>
-			<string>com.innova.carsplash</string>
+			<string>com.anlai.carsplash</string>
 		</dict>
 
 		<dict>
@@ -45,7 +45,7 @@
 			<key>key</key>
 			<string>videoName</string>
 			<key>defaults</key>
-			<string>com.innova.carsplash</string>
+			<string>com.anlai.carsplash</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -108,7 +108,7 @@
 			<key>segmentCount</key>
 			<integer>29</integer>
 			<key>defaults</key>
-			<string>com.innova.carsplash</string>
+			<string>com.anlai.carsplash</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -120,7 +120,7 @@
 			<key>default</key>
 			<false/>
 			<key>defaults</key>
-			<string>com.innova.carsplash</string>
+			<string>com.anlai.carsplash</string>
 		</dict>
 
 		<dict>
@@ -147,7 +147,7 @@
 				<string>Vừa khung</string>
 			</array>
 			<key>defaults</key>
-			<string>com.innova.carsplash</string>
+			<string>com.anlai.carsplash</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -159,7 +159,7 @@
 			<key>default</key>
 			<false/>
 			<key>defaults</key>
-			<string>com.innova.carsplash</string>
+			<string>com.anlai.carsplash</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -171,7 +171,7 @@
 			<key>default</key>
 			<true/>
 			<key>defaults</key>
-			<string>com.innova.carsplash</string>
+			<string>com.anlai.carsplash</string>
 		</dict>
 	</array>
 </dict>
