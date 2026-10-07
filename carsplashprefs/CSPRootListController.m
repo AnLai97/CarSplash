@@ -230,9 +230,9 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	[self reloadSpecifiers];
 }
 
-// A full-width table header/footer holding one rounded card: image on the left, text lines on the right.
+// A full-width table header/footer holding one rounded card: an image beside a column of text lines.
 // The card follows the table's layout margins so it lines up with the inset-grouped rows.
-- (UIView *)cardContainerWithHeight:(CGFloat)height insets:(UIEdgeInsets)insets image:(UIImage *)image side:(CGFloat)side lines:(NSArray<UILabel *> *)lines {
+- (UIView *)cardContainerWithHeight:(CGFloat)height insets:(UIEdgeInsets)insets image:(UIImage *)image side:(CGFloat)side imageOnRight:(BOOL)imageOnRight lines:(NSArray<UILabel *> *)lines {
 	UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, height)];
 	container.autoresizingMask = UIViewAutoresizingFlexibleWidth;
 	container.preservesSuperviewLayoutMargins = YES;
@@ -251,7 +251,7 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	text.axis = UILayoutConstraintAxisVertical;
 	text.spacing = 3;
 
-	UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[imageView, text]];
+	UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:imageOnRight ? @[text, imageView] : @[imageView, text]];
 	row.alignment = UIStackViewAlignmentCenter;
 	row.spacing = 14;
 	row.translatesAutoresizingMaskIntoConstraints = NO;
@@ -266,7 +266,8 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 		[imageView.widthAnchor constraintEqualToConstant:side],
 		[imageView.heightAnchor constraintEqualToConstant:side],
 		[row.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
-		[row.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-16],
+		imageOnRight ? [row.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16]
+		             : [row.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-16],
 		[row.centerYAnchor constraintEqualToAnchor:card.centerYAnchor],
 	]];
 	return container;
@@ -281,21 +282,21 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	return label;
 }
 
-// Top card: app icon, name and description. The enable switch follows as the first row.
+// Top card: name and description, app icon on the right. The enable switch follows as the first row.
 - (UIView *)headerView {
 	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
 	UIImage *logo = [UIImage imageNamed:@"logo" inBundle:bundle compatibleWithTraitCollection:nil];
-	return [self cardContainerWithHeight:128 insets:UIEdgeInsetsMake(16, 0, 0, 0) image:logo side:64 lines:@[
+	return [self cardContainerWithHeight:128 insets:UIEdgeInsetsMake(16, 0, 0, 0) image:logo side:64 imageOnRight:YES lines:@[
 		[self labelWithText:@"CarSplash" size:20 weight:UIFontWeightBold color:[UIColor labelColor]],
 		[self labelWithText:L(@"HEADER_TAGLINE") size:13 weight:UIFontWeightRegular color:[UIColor secondaryLabelColor]],
 	]];
 }
 
-// Bottom card: author logo, app name, version/build and copyright.
+// Bottom card: author logo, app name, version and copyright.
 - (UIView *)footerView {
 	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
 	UIImage *avatar = [UIImage imageNamed:@"avatar" inBundle:bundle compatibleWithTraitCollection:nil];
-	return [self cardContainerWithHeight:136 insets:UIEdgeInsetsMake(8, 0, 32, 0) image:avatar side:56 lines:@[
+	return [self cardContainerWithHeight:136 insets:UIEdgeInsetsMake(8, 0, 32, 0) image:avatar side:56 imageOnRight:NO lines:@[
 		[self labelWithText:@"CarSplash" size:16 weight:UIFontWeightSemibold color:[UIColor labelColor]],
 		[self labelWithText:[NSString stringWithFormat:L(@"VERSION_FORMAT"), @CSP_VERSION] size:13 weight:UIFontWeightRegular color:[UIColor secondaryLabelColor]],
 		[self labelWithText:L(@"COPYRIGHT") size:13 weight:UIFontWeightRegular color:[UIColor secondaryLabelColor]],
