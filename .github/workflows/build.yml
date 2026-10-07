@@ -42,7 +42,15 @@ jobs:
 
       - name: Build package
         working-directory: src
-        run: gmake package FINALPACKAGE=1
+        run: |
+          set -o pipefail
+          if ! gmake package FINALPACKAGE=1 2>&1 | tee build.log; then
+            # Surface compiler/make errors as annotations on the run page.
+            grep -E 'error:|Error [0-9]|No such file|not found' build.log | head -20 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
