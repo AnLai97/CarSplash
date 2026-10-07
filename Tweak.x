@@ -200,7 +200,7 @@ static NSURL *CSVideoURL(void) {
 	NSURL *url = [asset isKindOfClass:[AVURLAsset class]] ? ((AVURLAsset *)asset).URL : nil;
 	NSDictionary *attrs = url ? [[NSFileManager defaultManager] attributesOfItemAtPath:url.path error:nil] : nil;
 	CSLog(@"video file size=%@", attrs[NSFileSize]);
-	[asset loadValuesAsynchronouslyForKeys:@[@"playable", @"tracks"] completion:^{
+	[asset loadValuesAsynchronouslyForKeys:@[@"playable", @"tracks"] completionHandler:^{
 		NSError *error = nil;
 		AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&error];
 		CSLog(@"asset tracks status=%ld playable=%d error=%@", (long)status, asset.playable, error);
