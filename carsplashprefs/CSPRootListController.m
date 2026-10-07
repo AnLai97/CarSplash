@@ -4,16 +4,25 @@
 #import <AVKit/AVKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <CoreImage/CoreImage.h>
+#import <ImageIO/ImageIO.h>
 #import <rootless.h>
 
 #define kPrefsDomain CFSTR("com.anlai.carsplash")
 #define kVideosDir   ROOT_PATH_NS(@"/var/mobile/Library/CarSplash/Videos")
+
+// AVFoundation can't load media inside CarPlay.app, so each video is extracted here into JPEG
+// frames under Videos/.frames/<video>/ that the tweak plays as a flipbook.
+static const int32_t kFrameRate     = 24;
+static const double kMaxFrameSeconds = 60.0;
+static const CGFloat kMaxFrameSide   = 1280.0;
 
 @interface PSSpecifier (CarSplash)
 - (void)setValues:(NSArray *)values titles:(NSArray *)titles;
 @end
 
 @interface CSPRootListController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
+@property (nonatomic, assign) BOOL extracting;
 @end
 
 @implementation CSPRootListController
@@ -31,6 +40,16 @@
 - (void)viewWillAppear:(BOOL)animated {
 	[super viewWillAppear:animated];
 	[self reloadSpecifiers];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+	[super viewDidAppear:animated];
+	// Videos added before frame extraction existed (or copied in by hand) still need converting.
+	NSMutableArray *missing = [NSMutableArray array];
+	for (NSString *file in [self videoFiles]) {
+		if (![self hasFramesForVideo:file]) [missing addObject:file];
+	}
+	[self extractFramesForVideos:missing completion:nil];
 }
 
 - (NSArray<NSString *> *)videoFiles {
@@ -79,6 +98,123 @@
 	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"CarSplash" message:message preferredStyle:UIAlertControllerStyleAlert];
 	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
 	[self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark - Frames
+
+- (NSString *)framesDirForVideo:(NSString *)name {
+	return [[kVideosDir stringByAppendingPathComponent:@".frames"] stringByAppendingPathComponent:name];
+}
+
+- (BOOL)hasFramesForVideo:(NSString *)name {
+	NSString *info = [[self framesDirForVideo:name] stringByAppendingPathComponent:@"info.plist"];
+	return [[NSFileManager defaultManager] fileExistsAtPath:info];
+}
+
+- (void)extractFramesForVideos:(NSArray<NSString *> *)names completion:(void (^)(void))completion {
+	if (!names.count || self.extracting) {
+		if (completion) completion();
+		return;
+	}
+	self.extracting = YES;
+
+	UIAlertController *progress = [UIAlertController alertControllerWithTitle:@"CarSplash"
+	                                                                  message:@"Đang chuẩn bị video cho CarPlay…"
+	                                                           preferredStyle:UIAlertControllerStyleAlert];
+	[self presentViewController:progress animated:YES completion:nil];
+
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+		NSMutableArray *failed = [NSMutableArray array];
+		[names enumerateObjectsUsingBlock:^(NSString *name, NSUInteger idx, BOOL *stop) {
+			NSString *label = names.count > 1 ? [NSString stringWithFormat:@" (%lu/%lu)", (unsigned long)idx + 1, (unsigned long)names.count] : @"";
+			NSError *error = nil;
+			BOOL ok = [self extractFramesForVideo:name error:&error progress:^(double fraction) {
+				dispatch_async(dispatch_get_main_queue(), ^{
+					progress.message = [NSString stringWithFormat:@"Đang chuẩn bị video cho CarPlay%@… %d%%", label, (int)(fraction * 100)];
+				});
+			}];
+			if (!ok) [failed addObject:[NSString stringWithFormat:@"%@: %@", name, error.localizedDescription ?: @"?"]];
+		}];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			self.extracting = NO;
+			[progress dismissViewControllerAnimated:YES completion:^{
+				if (failed.count) [self showMessage:[NSString stringWithFormat:@"Không xử lý được video:\n%@", [failed componentsJoinedByString:@"\n"]]];
+				if (completion) completion();
+			}];
+		});
+	});
+}
+
+static CGImagePropertyOrientation CSOrientationForTransform(CGAffineTransform t) {
+	if (t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0) return kCGImagePropertyOrientationRight;
+	if (t.a == 0 && t.b == -1 && t.c == 1 && t.d == 0) return kCGImagePropertyOrientationLeft;
+	if (t.a == -1 && t.d == -1) return kCGImagePropertyOrientationDown;
+	return kCGImagePropertyOrientationUp;
+}
+
+// Decodes the video sequentially and writes one JPEG per 1/kFrameRate seconds, plus info.plist.
+- (BOOL)extractFramesForVideo:(NSString *)name error:(NSError **)error progress:(void (^)(double fraction))progress {
+	NSFileManager *fm = [NSFileManager defaultManager];
+	NSString *dir = [self framesDirForVideo:name];
+	[fm removeItemAtPath:dir error:nil];
+	if (![fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:error]) return NO;
+
+	AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:[kVideosDir stringByAppendingPathComponent:name]] options:nil];
+	AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
+	AVAssetReader *reader = track ? [AVAssetReader assetReaderWithAsset:asset error:error] : nil;
+	if (!reader) {
+		[fm removeItemAtPath:dir error:nil];
+		return NO;
+	}
+
+	NSDictionary *settings = @{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
+	AVAssetReaderTrackOutput *output = [AVAssetReaderTrackOutput assetReaderTrackOutputWithTrack:track outputSettings:settings];
+	output.alwaysCopiesSampleData = NO;
+	[reader addOutput:output];
+	double seconds = MIN(CMTimeGetSeconds(asset.duration), kMaxFrameSeconds);
+	reader.timeRange = CMTimeRangeMake(kCMTimeZero, CMTimeMakeWithSeconds(seconds, 600));
+	if (![reader startReading]) {
+		if (error) *error = reader.error;
+		[fm removeItemAtPath:dir error:nil];
+		return NO;
+	}
+
+	CIContext *context = [CIContext contextWithOptions:nil];
+	CGColorSpaceRef sRGB = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+	CGImagePropertyOrientation orientation = CSOrientationForTransform(track.preferredTransform);
+	NSDictionary *jpegOptions = @{(id)kCGImageDestinationLossyCompressionQuality: @0.8};
+	NSUInteger count = 0;
+	double nextTime = 0;
+
+	CMSampleBufferRef sample;
+	while ((sample = [output copyNextSampleBuffer])) {
+		@autoreleasepool {
+			double time = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample));
+			CVImageBufferRef pixels = CMSampleBufferGetImageBuffer(sample);
+			// Keep only the frames that land on our output frame rate.
+			if (pixels && time + 0.001 >= nextTime) {
+				CIImage *image = [[CIImage imageWithCVPixelBuffer:pixels] imageByApplyingCGOrientation:orientation];
+				CGFloat scale = MIN(1.0, kMaxFrameSide / MAX(image.extent.size.width, image.extent.size.height));
+				image = [image imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+				NSData *jpeg = [context JPEGRepresentationOfImage:image colorSpace:sRGB options:jpegOptions];
+				NSString *path = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"%05lu.jpg", (unsigned long)count]];
+				if ([jpeg writeToFile:path atomically:NO]) count++;
+				nextTime += 1.0 / kFrameRate;
+				if (seconds > 0) progress(MIN(1.0, time / seconds));
+			}
+			CFRelease(sample);
+		}
+	}
+	CGColorSpaceRelease(sRGB);
+
+	if (reader.status == AVAssetReaderStatusFailed || !count) {
+		if (error) *error = reader.error;
+		[fm removeItemAtPath:dir error:nil];
+		return NO;
+	}
+	// info.plist is written last: its presence marks the frames as complete.
+	NSDictionary *info = @{@"fps": @(kFrameRate), @"count": @(count)};
+	return [info writeToURL:[NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"info.plist"]] error:error];
 }
 
 #pragma mark - Import
@@ -138,6 +274,7 @@
 	}
 	[fm setAttributes:@{NSFilePosixPermissions: @0644} ofItemAtPath:dest error:nil];
 	[self setSelectedVideo:dest.lastPathComponent];
+	[self extractFramesForVideos:@[dest.lastPathComponent] completion:nil];
 }
 
 #pragma mark - Preview / delete
@@ -160,6 +297,7 @@
 	[alert addAction:[UIAlertAction actionWithTitle:@"Huỷ" style:UIAlertActionStyleCancel handler:nil]];
 	[alert addAction:[UIAlertAction actionWithTitle:@"Xoá" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
 		[[NSFileManager defaultManager] removeItemAtPath:[kVideosDir stringByAppendingPathComponent:name] error:nil];
+		[[NSFileManager defaultManager] removeItemAtPath:[self framesDirForVideo:name] error:nil];
 		[self setSelectedVideo:[self videoFiles].firstObject];
 	}]];
 	[self presentViewController:alert animated:YES completion:nil];

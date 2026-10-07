@@ -8,7 +8,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = CarSplash
 
 CarSplash_FILES = Tweak.x
-CarSplash_FRAMEWORKS = UIKit AVFoundation CoreMedia UniformTypeIdentifiers
+CarSplash_FRAMEWORKS = UIKit ImageIO QuartzCore
 CarSplash_CFLAGS = -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk

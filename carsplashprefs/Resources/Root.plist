@@ -31,7 +31,7 @@
 			<key>label</key>
 			<string>Video</string>
 			<key>footerText</key>
-			<string>Hỗ trợ .mp4, .mov, .m4v. Video được lưu trong /var/jb/var/mobile/Library/CarSplash/Videos.</string>
+			<string>Hỗ trợ .mp4, .mov, .m4v. Khi thêm video, CarSplash sẽ chuyển video thành ảnh để phát trên CarPlay (không có âm thanh, tối đa 60 giây). Video được lưu trong /var/jb/var/mobile/Library/CarSplash/Videos.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -146,18 +146,6 @@
 				<string>Lấp đầy</string>
 				<string>Vừa khung</string>
 			</array>
-			<key>defaults</key>
-			<string>com.anlai.carsplash</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>label</key>
-			<string>Phát âm thanh</string>
-			<key>key</key>
-			<string>sound</string>
-			<key>default</key>
-			<false/>
 			<key>defaults</key>
 			<string>com.anlai.carsplash</string>
 		</dict>

@@ -5,12 +5,15 @@
 // high-level window on top of it, play the chosen video for the configured time, then fade it
 // out to reveal the CarPlay home screen underneath.
 //
+// AVFoundation never finishes loading media inside CarPlay.app, so the settings pane extracts
+// each video into JPEG frames (Videos/.frames/<video>/) and we play those as a flipbook.
+//
 // Logs are prefixed with "[CarSplash]" — filter for it in Console.app to debug.
 
 #import <UIKit/UIKit.h>
-#import <AVFoundation/AVFoundation.h>
+#import <ImageIO/ImageIO.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <rootless.h>
 
 #define kPrefsDomain CFSTR("com.anlai.carsplash")
@@ -18,10 +21,9 @@
 
 static const NSTimeInterval kFadeDuration = 0.4;
 static const NSTimeInterval kMaxFullPlay  = 60.0;
-static const NSTimeInterval kLoadTimeout  = 10.0;
+static const NSUInteger kFrameBufferSize  = 6;
 static char kSplashKey;
 static char kShownKey;
-static char kStatusContext;
 
 #pragma mark - Logging
 
@@ -61,111 +63,38 @@ static id CSPref(NSString *key, id fallback) {
 	return value ?: fallback;
 }
 
-static NSURL *CSVideoURL(void) {
+static NSString *CSVideoName(void) {
 	NSFileManager *fm = [NSFileManager defaultManager];
 	NSString *name = CSPref(@"videoName", nil);
-	if (name.length) {
-		NSString *path = [kVideosDir stringByAppendingPathComponent:name];
-		if ([fm fileExistsAtPath:path]) return [NSURL fileURLWithPath:path];
-	}
+	if (name.length && [fm fileExistsAtPath:[kVideosDir stringByAppendingPathComponent:name]]) return name;
 	// Fall back to the first video in the folder.
 	NSError *error = nil;
 	NSArray *files = [[fm contentsOfDirectoryAtPath:kVideosDir error:&error] sortedArrayUsingSelector:@selector(compare:)];
 	if (error) CSLog(@"cannot list %@: %@", kVideosDir, error);
 	for (NSString *file in files) {
-		if ([file hasPrefix:@"."]) continue;
-		return [NSURL fileURLWithPath:[kVideosDir stringByAppendingPathComponent:file]];
+		if (![file hasPrefix:@"."]) return file;
 	}
 	return nil;
 }
 
-#pragma mark - Player view
-
-@interface CSPlayerView : UIView
-@property (nonatomic, readonly) AVPlayerLayer *playerLayer;
-@end
-
-@implementation CSPlayerView
-+ (Class)layerClass { return [AVPlayerLayer class]; }
-- (AVPlayerLayer *)playerLayer { return (AVPlayerLayer *)self.layer; }
-@end
-
-#pragma mark - Resource loader
-
-// iOS opens media in mediaserverd, whose sandbox can't read the jailbreak prefix, so a plain
-// file URL loads forever. Serve the bytes from our own process through a custom scheme instead.
-static NSString *const kLoaderScheme = @"carsplash";
-
-@interface CSVideoLoader : NSObject <AVAssetResourceLoaderDelegate>
-@property (nonatomic, copy) NSString *path;
-@property (nonatomic, strong) dispatch_queue_t queue;
-@property (nonatomic, assign) BOOL loggedFirstRequest;
-- (instancetype)initWithPath:(NSString *)path;
-- (AVURLAsset *)asset;
-@end
-
-@implementation CSVideoLoader
-
-- (instancetype)initWithPath:(NSString *)path {
-	if ((self = [super init])) {
-		_path = [path copy];
-		_queue = dispatch_queue_create("com.anlai.carsplash.loader", DISPATCH_QUEUE_SERIAL);
-	}
-	return self;
+static NSString *CSFramesDir(NSString *videoName) {
+	return [[kVideosDir stringByAppendingPathComponent:@".frames"] stringByAppendingPathComponent:videoName];
 }
 
-- (AVURLAsset *)asset {
-	NSURLComponents *components = [NSURLComponents new];
-	components.scheme = kLoaderScheme;
-	components.host = @"video";
-	components.path = [@"/" stringByAppendingString:self.path.lastPathComponent];
-	AVURLAsset *asset = [AVURLAsset URLAssetWithURL:components.URL options:nil];
-	[asset.resourceLoader setDelegate:self queue:self.queue];
-	return asset;
+#pragma mark - Frames
+
+static UIImage *CSDecodeFrame(NSString *path) {
+	CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
+	if (!source) return nil;
+	// Decode now, on the background queue, rather than lazily on the main thread at draw time.
+	NSDictionary *options = @{(__bridge id)kCGImageSourceShouldCacheImmediately: @YES};
+	CGImageRef cgImage = CGImageSourceCreateImageAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+	CFRelease(source);
+	if (!cgImage) return nil;
+	UIImage *image = [UIImage imageWithCGImage:cgImage];
+	CGImageRelease(cgImage);
+	return image;
 }
-
-- (BOOL)resourceLoader:(AVAssetResourceLoader *)loader shouldWaitForLoadingOfRequestedResource:(AVAssetResourceLoadingRequest *)request {
-	NSFileHandle *file = [NSFileHandle fileHandleForReadingAtPath:self.path];
-	if (!file) {
-		CSLog(@"loader: cannot open %@", self.path);
-		[request finishLoadingWithError:[NSError errorWithDomain:NSPOSIXErrorDomain code:EACCES userInfo:nil]];
-		return YES;
-	}
-	unsigned long long size = [file seekToEndOfFile];
-
-	AVAssetResourceLoadingContentInformationRequest *info = request.contentInformationRequest;
-	if (info) {
-		UTType *type = [UTType typeWithFilenameExtension:self.path.pathExtension];
-		info.contentType = type.identifier ?: AVFileTypeQuickTimeMovie;
-		info.contentLength = (long long)size;
-		info.byteRangeAccessSupported = YES;
-	}
-
-	AVAssetResourceLoadingDataRequest *dataRequest = request.dataRequest;
-	if (!self.loggedFirstRequest) {
-		self.loggedFirstRequest = YES;
-		CSLog(@"loader: first request size=%llu type=%@ offset=%lld length=%ld", size, info.contentType,
-			dataRequest.requestedOffset, (long)dataRequest.requestedLength);
-	}
-	if (dataRequest) {
-		unsigned long long offset = (unsigned long long)dataRequest.requestedOffset;
-		unsigned long long end = dataRequest.requestsAllDataToEndOfResource ? size
-			: MIN(size, offset + (unsigned long long)dataRequest.requestedLength);
-		[file seekToFileOffset:offset];
-		while (offset < end && !request.isCancelled) {
-			NSUInteger chunk = (NSUInteger)MIN(end - offset, 1024 * 1024ULL);
-			NSData *data = [file readDataOfLength:chunk];
-			if (!data.length) break;
-			[dataRequest respondWithData:data];
-			offset += data.length;
-		}
-	}
-	[file closeFile];
-	[request finishLoading];
-	return YES;
-}
-
-@end
 
 #pragma mark - Splash
 
@@ -178,48 +107,49 @@ static NSString *const kLoaderScheme = @"carsplash";
 
 @interface CSSplash : NSObject
 @property (nonatomic, strong) UIWindow *window;
-@property (nonatomic, strong) AVPlayer *player;
-// The resource loader only holds its delegate weakly.
-@property (nonatomic, strong) CSVideoLoader *loader;
-@property (nonatomic, strong) id endObserver;
+@property (nonatomic, strong) UIImageView *imageView;
 @property (nonatomic, weak) UIScreen *screen;
+@property (nonatomic, copy) NSString *framesDir;
+@property (nonatomic, assign) NSUInteger frameCount;
+@property (nonatomic, assign) double fps;
+@property (nonatomic, assign) BOOL loop;
+@property (nonatomic, strong) NSMutableArray<UIImage *> *buffer;
+@property (nonatomic, strong) dispatch_queue_t decodeQueue;
+@property (nonatomic, assign) BOOL decoding;
+@property (nonatomic, assign) NSUInteger queuedFrames;
+@property (nonatomic, assign) NSUInteger shownFrames;
+@property (nonatomic, assign) NSUInteger failedFrames;
+@property (nonatomic, assign) CFTimeInterval startTime;
+@property (nonatomic, strong) CADisplayLink *displayLink;
 @property (nonatomic, assign) BOOL finished;
-@property (nonatomic, assign) BOOL countdownStarted;
-@property (nonatomic, assign) BOOL observingItem;
 @end
 
 @implementation CSSplash
 
-- (instancetype)initWithScreen:(UIScreen *)screen scene:(UIWindowScene *)scene videoURL:(NSURL *)url {
+- (instancetype)initWithScreen:(UIScreen *)screen scene:(UIWindowScene *)scene framesDir:(NSString *)framesDir
+                    frameCount:(NSUInteger)frameCount fps:(double)fps {
 	if ((self = [super init])) {
 		_screen = screen;
+		_framesDir = [framesDir copy];
+		_frameCount = frameCount;
+		_fps = fps;
+		// Loop the clip until the configured duration is up, unless it should play exactly once.
+		_loop = ![CSPref(@"playFull", @NO) boolValue];
+		_buffer = [NSMutableArray array];
+		_decodeQueue = dispatch_queue_create("com.anlai.carsplash.decode", DISPATCH_QUEUE_SERIAL);
 
-		BOOL sound    = [CSPref(@"sound", @NO) boolValue];
-		BOOL fit      = [CSPref(@"scaleMode", @0) integerValue] == 1;
-		BOOL tapSkip  = [CSPref(@"tapToSkip", @YES) boolValue];
-		BOOL playFull = [CSPref(@"playFull", @NO) boolValue];
+		BOOL fit     = [CSPref(@"scaleMode", @0) integerValue] == 1;
+		BOOL tapSkip = [CSPref(@"tapToSkip", @YES) boolValue];
 
-		if (sound) {
-			// Ambient: mix with whatever is playing instead of interrupting the car audio.
-			[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient
-			                                 withOptions:AVAudioSessionCategoryOptionMixWithOthers
-			                                       error:nil];
-		}
-
-		_loader = [[CSVideoLoader alloc] initWithPath:url.path];
-		_player = [AVPlayer playerWithPlayerItem:[AVPlayerItem playerItemWithAsset:[_loader asset]]];
-		_player.muted = !sound;
-		// When a fixed duration is longer than the clip, loop it until time is up.
-		_player.actionAtItemEnd = playFull ? AVPlayerActionAtItemEndPause : AVPlayerActionAtItemEndNone;
-
-		CSPlayerView *playerView = [[CSPlayerView alloc] initWithFrame:screen.bounds];
-		playerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-		playerView.backgroundColor = [UIColor blackColor];
-		playerView.playerLayer.player = _player;
-		playerView.playerLayer.videoGravity = fit ? AVLayerVideoGravityResizeAspect : AVLayerVideoGravityResizeAspectFill;
+		_imageView = [[UIImageView alloc] initWithFrame:screen.bounds];
+		_imageView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+		_imageView.backgroundColor = [UIColor blackColor];
+		_imageView.contentMode = fit ? UIViewContentModeScaleAspectFit : UIViewContentModeScaleAspectFill;
+		_imageView.clipsToBounds = YES;
+		_imageView.userInteractionEnabled = YES;
 
 		UIViewController *vc = [UIViewController new];
-		vc.view = playerView;
+		vc.view = _imageView;
 
 		// CarPlay may or may not drive the car display through a UIWindowScene.
 		if (scene) {
@@ -238,7 +168,7 @@ static NSString *const kLoaderScheme = @"carsplash";
 
 		if (tapSkip) {
 			UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismiss)];
-			[playerView addGestureRecognizer:tap];
+			[_imageView addGestureRecognizer:tap];
 		}
 	}
 	return self;
@@ -246,75 +176,81 @@ static NSString *const kLoaderScheme = @"carsplash";
 
 - (void)start {
 	self.window.hidden = NO;
+	CSLog(@"splash window shown: frame=%@ level=%.0f scene=%@ frames=%lu fps=%.0f loop=%d",
+		NSStringFromCGRect(self.window.frame), self.window.windowLevel,
+		self.window.windowScene.session.persistentIdentifier, (unsigned long)self.frameCount, self.fps, self.loop);
 
-	BOOL playFull = [CSPref(@"playFull", @NO) boolValue];
-	AVPlayerItem *item = self.player.currentItem;
+	self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick)];
+	[self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+	[self decodeMore];
 
+	// Safety net in case no frame ever decodes: never block CarPlay for long.
 	__weak __typeof(self) weakSelf = self;
-	self.endObserver = [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
-	                                                                     object:item
-	                                                                      queue:[NSOperationQueue mainQueue]
-	                                                                 usingBlock:^(NSNotification *note) {
-		if (playFull) [weakSelf dismiss];
-		else [weakSelf.player seekToTime:kCMTimeZero];
-	}];
-
-	[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionInitial context:&kStatusContext];
-	self.observingItem = YES;
-	[self.player play];
-	CSLog(@"splash window shown: frame=%@ level=%.0f scene=%@", NSStringFromCGRect(self.window.frame),
-		self.window.windowLevel, self.window.windowScene.session.persistentIdentifier);
-	[self logAsset:item.asset];
-
-	// CarPlay's main thread can stall for seconds while it starts up, so the countdown only
-	// begins once the video is ready. Give up if it never loads.
-	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kLoadTimeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-		if (weakSelf && !weakSelf.countdownStarted) {
-			CSLog(@"video not ready after %.0fs (status=%ld error=%@), giving up", kLoadTimeout,
-				(long)weakSelf.player.currentItem.status, weakSelf.player.currentItem.error);
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		if (weakSelf && !weakSelf.shownFrames) {
+			CSLog(@"no frame shown after 10s (failed=%lu), giving up", (unsigned long)weakSelf.failedFrames);
 			[weakSelf dismiss];
 		}
 	});
 }
 
-- (void)logAsset:(AVAsset *)asset {
-	NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:self.loader.path error:nil];
-	CSLog(@"video file size=%@ asset=%@", attrs[NSFileSize], [asset isKindOfClass:[AVURLAsset class]] ? ((AVURLAsset *)asset).URL : asset);
-	[asset loadValuesAsynchronouslyForKeys:@[@"playable", @"tracks"] completionHandler:^{
-		NSError *error = nil;
-		AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&error];
-		CSLog(@"asset tracks status=%ld playable=%d error=%@", (long)status, asset.playable, error);
-		for (AVAssetTrack *track in [asset tracksWithMediaType:AVMediaTypeVideo]) {
-			CMFormatDescriptionRef desc = (__bridge CMFormatDescriptionRef)track.formatDescriptions.firstObject;
-			FourCharCode codec = desc ? CMFormatDescriptionGetMediaSubType(desc) : 0;
-			CSLog(@"video track codec=%c%c%c%c size=%@ fps=%.1f", (char)(codec >> 24), (char)(codec >> 16),
-				(char)(codec >> 8), (char)codec, NSStringFromCGSize(track.naturalSize), track.nominalFrameRate);
-		}
-	}];
-}
+// Decodes frames one at a time on a background queue, keeping a few ready ahead of playback.
+- (void)decodeMore {
+	if (self.decoding || self.finished || self.buffer.count >= kFrameBufferSize) return;
+	if (!self.loop && self.queuedFrames >= self.frameCount) return;
+	// Every frame failing would otherwise spin forever.
+	if (self.failedFrames >= self.frameCount) return;
 
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
-	if (context != &kStatusContext) {
-		[super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
-		return;
-	}
-	AVPlayerItem *item = object;
-	dispatch_async(dispatch_get_main_queue(), ^{
-		CSLog(@"player item status=%ld error=%@", (long)item.status, item.error);
-		if (item.status == AVPlayerItemStatusReadyToPlay) [self startCountdown];
-		else if (item.status == AVPlayerItemStatusFailed) [self dismiss];
+	self.decoding = YES;
+	NSUInteger index = self.queuedFrames % self.frameCount;
+	self.queuedFrames++;
+	NSString *path = [self.framesDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%05lu.jpg", (unsigned long)index]];
+	dispatch_async(self.decodeQueue, ^{
+		UIImage *image = CSDecodeFrame(path);
+		dispatch_async(dispatch_get_main_queue(), ^{
+			self.decoding = NO;
+			if (self.finished) return;
+			if (image) {
+				[self.buffer addObject:image];
+			} else if (self.failedFrames++ == 0) {
+				CSLog(@"cannot decode %@", path);
+			}
+			[self decodeMore];
+		});
 	});
 }
 
-- (void)startCountdown {
-	if (self.countdownStarted || self.finished) return;
-	self.countdownStarted = YES;
+- (void)tick {
+	if (self.finished || !self.buffer.count) return;
 
-	BOOL playFull = [CSPref(@"playFull", @NO) boolValue];
-	double duration = MAX(1.0, [CSPref(@"duration", @5) doubleValue]);
-	// Safety net: never block CarPlay longer than this, even if playback stalls.
-	NSTimeInterval limit = playFull ? kMaxFullPlay : duration;
-	CSLog(@"video ready, showing for %.0fs", limit);
+	CFTimeInterval now = CACurrentMediaTime();
+	if (!self.shownFrames) {
+		self.startTime = now;
+		[self startCountdown];
+	} else if (self.shownFrames > (NSUInteger)((now - self.startTime) * self.fps)) {
+		return; // Next frame isn't due yet.
+	}
+
+	self.imageView.image = self.buffer.firstObject;
+	[self.buffer removeObjectAtIndex:0];
+	self.shownFrames++;
+
+	if (!self.loop && self.shownFrames >= self.frameCount) {
+		[self.displayLink invalidate];
+		__weak __typeof(self) weakSelf = self;
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / self.fps)), dispatch_get_main_queue(), ^{
+			[weakSelf dismiss];
+		});
+		return;
+	}
+	[self decodeMore];
+}
+
+// CarPlay's main thread can stall for seconds while it starts up, so the countdown only
+// begins once the first frame is on screen.
+- (void)startCountdown {
+	NSTimeInterval limit = self.loop ? MAX(1.0, [CSPref(@"duration", @5) doubleValue]) : kMaxFullPlay;
+	CSLog(@"first frame shown, playing for up to %.0fs", limit);
 
 	__weak __typeof(self) weakSelf = self;
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(limit * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -325,6 +261,7 @@ static NSString *const kLoaderScheme = @"carsplash";
 - (void)dismiss {
 	if (self.finished) return;
 	self.finished = YES;
+	CSLog(@"dismissing after %lu frames", (unsigned long)self.shownFrames);
 
 	[UIView animateWithDuration:kFadeDuration animations:^{
 		self.window.alpha = 0.0;
@@ -334,11 +271,10 @@ static NSString *const kLoaderScheme = @"carsplash";
 }
 
 - (void)tearDown {
-	[self.player pause];
-	if (self.observingItem) [self.player.currentItem removeObserver:self forKeyPath:@"status" context:&kStatusContext];
-	self.observingItem = NO;
-	if (self.endObserver) [[NSNotificationCenter defaultCenter] removeObserver:self.endObserver];
-	self.endObserver = nil;
+	self.finished = YES;
+	[self.displayLink invalidate];
+	self.displayLink = nil;
+	[self.buffer removeAllObjects];
 	self.window.hidden = YES;
 	self.window = nil;
 	UIScreen *screen = self.screen;
@@ -366,11 +302,20 @@ static void CSShowSplash(UIScreen *screen, UIWindowScene *scene, NSString *sourc
 	CFPreferencesAppSynchronize(kPrefsDomain);
 	if (![CSPref(@"enabled", @YES) boolValue]) { CSLog(@"disabled in settings"); return; }
 
-	NSURL *url = CSVideoURL();
-	if (!url) { CSLog(@"no video found in %@", kVideosDir); return; }
-	CSLog(@"playing %@", url.path);
+	NSString *name = CSVideoName();
+	if (!name) { CSLog(@"no video found in %@", kVideosDir); return; }
 
-	CSSplash *splash = [[CSSplash alloc] initWithScreen:screen scene:scene videoURL:url];
+	NSString *framesDir = CSFramesDir(name);
+	NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[framesDir stringByAppendingPathComponent:@"info.plist"]];
+	NSUInteger count = [info[@"count"] unsignedIntegerValue];
+	double fps = [info[@"fps"] doubleValue];
+	if (!count || fps <= 0) {
+		CSLog(@"no frames for %@ — open Settings > CarSplash to convert it", name);
+		return;
+	}
+	CSLog(@"playing %@ (%lu frames @ %.0ffps)", name, (unsigned long)count, fps);
+
+	CSSplash *splash = [[CSSplash alloc] initWithScreen:screen scene:scene framesDir:framesDir frameCount:count fps:fps];
 	objc_setAssociatedObject(screen, &kSplashKey, splash, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 	[splash start];
 }
