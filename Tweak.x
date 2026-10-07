@@ -17,8 +17,10 @@
 
 static const NSTimeInterval kFadeDuration = 0.4;
 static const NSTimeInterval kMaxFullPlay  = 60.0;
+static const NSTimeInterval kLoadTimeout  = 10.0;
 static char kSplashKey;
 static char kShownKey;
+static char kStatusContext;
 
 #pragma mark - Logging
 
@@ -102,6 +104,8 @@ static NSURL *CSVideoURL(void) {
 @property (nonatomic, strong) id endObserver;
 @property (nonatomic, weak) UIScreen *screen;
 @property (nonatomic, assign) BOOL finished;
+@property (nonatomic, assign) BOOL countdownStarted;
+@property (nonatomic, assign) BOOL observingItem;
 @end
 
 @implementation CSSplash
@@ -163,7 +167,6 @@ static NSURL *CSVideoURL(void) {
 	self.window.hidden = NO;
 
 	BOOL playFull = [CSPref(@"playFull", @NO) boolValue];
-	double duration = MAX(1.0, [CSPref(@"duration", @5) doubleValue]);
 	AVPlayerItem *item = self.player.currentItem;
 
 	__weak __typeof(self) weakSelf = self;
@@ -175,14 +178,65 @@ static NSURL *CSVideoURL(void) {
 		else [weakSelf.player seekToTime:kCMTimeZero];
 	}];
 
+	[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionInitial context:&kStatusContext];
+	self.observingItem = YES;
 	[self.player play];
-	CSLog(@"splash window shown: frame=%@ level=%.0f", NSStringFromCGRect(self.window.frame), self.window.windowLevel);
-	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-		CSLog(@"player status=%ld error=%@", (long)item.status, item.error);
-	});
+	CSLog(@"splash window shown: frame=%@ level=%.0f scene=%@", NSStringFromCGRect(self.window.frame),
+		self.window.windowLevel, self.window.windowScene.session.persistentIdentifier);
+	[self logAsset:item.asset];
 
-	// Safety net: never block CarPlay longer than this, even if the video fails to load.
+	// CarPlay's main thread can stall for seconds while it starts up, so the countdown only
+	// begins once the video is ready. Give up if it never loads.
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kLoadTimeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		if (weakSelf && !weakSelf.countdownStarted) {
+			CSLog(@"video not ready after %.0fs (status=%ld error=%@), giving up", kLoadTimeout,
+				(long)weakSelf.player.currentItem.status, weakSelf.player.currentItem.error);
+			[weakSelf dismiss];
+		}
+	});
+}
+
+- (void)logAsset:(AVAsset *)asset {
+	NSURL *url = [asset isKindOfClass:[AVURLAsset class]] ? ((AVURLAsset *)asset).URL : nil;
+	NSDictionary *attrs = url ? [[NSFileManager defaultManager] attributesOfItemAtPath:url.path error:nil] : nil;
+	CSLog(@"video file size=%@", attrs[NSFileSize]);
+	[asset loadValuesAsynchronouslyForKeys:@[@"playable", @"tracks"] completion:^{
+		NSError *error = nil;
+		AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&error];
+		CSLog(@"asset tracks status=%ld playable=%d error=%@", (long)status, asset.playable, error);
+		for (AVAssetTrack *track in [asset tracksWithMediaType:AVMediaTypeVideo]) {
+			CMFormatDescriptionRef desc = (__bridge CMFormatDescriptionRef)track.formatDescriptions.firstObject;
+			FourCharCode codec = desc ? CMFormatDescriptionGetMediaSubType(desc) : 0;
+			CSLog(@"video track codec=%c%c%c%c size=%@ fps=%.1f", (char)(codec >> 24), (char)(codec >> 16),
+				(char)(codec >> 8), (char)codec, NSStringFromCGSize(track.naturalSize), track.nominalFrameRate);
+		}
+	}];
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+	if (context != &kStatusContext) {
+		[super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+		return;
+	}
+	AVPlayerItem *item = object;
+	dispatch_async(dispatch_get_main_queue(), ^{
+		CSLog(@"player item status=%ld error=%@", (long)item.status, item.error);
+		if (item.status == AVPlayerItemStatusReadyToPlay) [self startCountdown];
+		else if (item.status == AVPlayerItemStatusFailed) [self dismiss];
+	});
+}
+
+- (void)startCountdown {
+	if (self.countdownStarted || self.finished) return;
+	self.countdownStarted = YES;
+
+	BOOL playFull = [CSPref(@"playFull", @NO) boolValue];
+	double duration = MAX(1.0, [CSPref(@"duration", @5) doubleValue]);
+	// Safety net: never block CarPlay longer than this, even if playback stalls.
 	NSTimeInterval limit = playFull ? kMaxFullPlay : duration;
+	CSLog(@"video ready, showing for %.0fs", limit);
+
+	__weak __typeof(self) weakSelf = self;
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(limit * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
 		[weakSelf dismiss];
 	});
@@ -201,6 +255,8 @@ static NSURL *CSVideoURL(void) {
 
 - (void)tearDown {
 	[self.player pause];
+	if (self.observingItem) [self.player.currentItem removeObserver:self forKeyPath:@"status" context:&kStatusContext];
+	self.observingItem = NO;
 	if (self.endObserver) [[NSNotificationCenter defaultCenter] removeObserver:self.endObserver];
 	self.endObserver = nil;
 	self.window.hidden = YES;
@@ -273,8 +329,9 @@ static void CSTearDownScreen(UIScreen *screen) {
 	static int logged = 0;
 	if (logged < 40) {
 		logged++;
-		CSLog(@"window shown: %@ level=%.0f scene=%@ screen=%@", NSStringFromClass([self class]), self.windowLevel,
-			self.windowScene ? NSStringFromClass([self.windowScene class]) : @"(nil)", CSDescribeScreen(screen));
+		CSLog(@"window shown: %@ level=%.0f scene=%@ %p %@ screen=%@", NSStringFromClass([self class]), self.windowLevel,
+			self.windowScene ? NSStringFromClass([self.windowScene class]) : @"(nil)", self.windowScene,
+			self.windowScene.session.persistentIdentifier, CSDescribeScreen(screen));
 	}
 
 	if (!CSIsCarScreen(screen)) return;
