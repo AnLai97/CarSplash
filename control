@@ -1,4 +1,4 @@
-Package: com.anlai.carsplash
+Package: carsplash_rootless
 Name: CarSplash
 Version: 1.0.0
 Architecture: iphoneos-arm64
