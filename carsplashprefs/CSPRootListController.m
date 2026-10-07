@@ -15,7 +15,9 @@
 // frames under Videos/.frames/<video>/ that the tweak plays as a flipbook.
 static const int32_t kFrameRate     = 24;
 static const double kMaxFrameSeconds = 60.0;
-static const CGFloat kMaxFrameSide   = 1280.0;
+static const CGFloat kMaxFrameSide   = 1920.0;
+// Bump when the extraction output changes so existing videos are re-extracted.
+static const NSInteger kFramesVersion = 2;
 
 @interface PSSpecifier (CarSplash)
 - (void)setValues:(NSArray *)values titles:(NSArray *)titles;
@@ -107,8 +109,24 @@ static const CGFloat kMaxFrameSide   = 1280.0;
 }
 
 - (BOOL)hasFramesForVideo:(NSString *)name {
-	NSString *info = [[self framesDirForVideo:name] stringByAppendingPathComponent:@"info.plist"];
-	return [[NSFileManager defaultManager] fileExistsAtPath:info];
+	NSString *path = [[self framesDirForVideo:name] stringByAppendingPathComponent:@"info.plist"];
+	NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:path];
+	return [info[@"version"] integerValue] >= kFramesVersion;
+}
+
+// Exports the soundtrack to audio.m4a for SpringBoard to play. Returns NO only on a real failure;
+// a video without audio is fine.
+- (BOOL)extractAudioFromAsset:(AVAsset *)asset seconds:(double)seconds toDir:(NSString *)dir {
+	if (![asset tracksWithMediaType:AVMediaTypeAudio].count) return YES;
+	AVAssetExportSession *export = [AVAssetExportSession exportSessionWithAsset:asset presetName:AVAssetExportPresetAppleM4A];
+	if (!export) return NO;
+	export.outputURL = [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"audio.m4a"]];
+	export.outputFileType = AVFileTypeAppleM4A;
+	export.timeRange = CMTimeRangeMake(kCMTimeZero, CMTimeMakeWithSeconds(seconds, 600));
+	dispatch_semaphore_t done = dispatch_semaphore_create(0);
+	[export exportAsynchronouslyWithCompletionHandler:^{ dispatch_semaphore_signal(done); }];
+	dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+	return export.status == AVAssetExportSessionStatusCompleted;
 }
 
 - (void)extractFramesForVideos:(NSArray<NSString *> *)names completion:(void (^)(void))completion {
@@ -182,7 +200,7 @@ static CGImagePropertyOrientation CSOrientationForTransform(CGAffineTransform t)
 	CIContext *context = [CIContext contextWithOptions:nil];
 	CGColorSpaceRef sRGB = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
 	CGImagePropertyOrientation orientation = CSOrientationForTransform(track.preferredTransform);
-	NSDictionary *jpegOptions = @{(id)kCGImageDestinationLossyCompressionQuality: @0.8};
+	NSDictionary *jpegOptions = @{(id)kCGImageDestinationLossyCompressionQuality: @0.9};
 	NSUInteger count = 0;
 	double nextTime = 0;
 
@@ -213,7 +231,11 @@ static CGImagePropertyOrientation CSOrientationForTransform(CGAffineTransform t)
 		return NO;
 	}
 	// info.plist is written last: its presence marks the frames as complete.
-	NSDictionary *info = @{@"fps": @(kFrameRate), @"count": @(count)};
+	if (![self extractAudioFromAsset:asset seconds:seconds toDir:dir]) {
+		// Keep the frames; the splash just plays silently.
+		NSLog(@"[CarSplash] audio export failed for %@", name);
+	}
+	NSDictionary *info = @{@"fps": @(kFrameRate), @"count": @(count), @"version": @(kFramesVersion)};
 	return [info writeToURL:[NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"info.plist"]] error:error];
 }
 

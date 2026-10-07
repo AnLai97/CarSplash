@@ -6,11 +6,13 @@
 // out to reveal the CarPlay home screen underneath.
 //
 // AVFoundation never finishes loading media inside CarPlay.app, so the settings pane extracts
-// each video into JPEG frames (Videos/.frames/<video>/) and we play those as a flipbook.
+// each video into JPEG frames (Videos/.frames/<video>/) and we play those as a flipbook. The
+// soundtrack (audio.m4a next to the frames) is played by the same tweak loaded into SpringBoard.
 //
 // Logs are prefixed with "[CarSplash]" — filter for it in Console.app to debug.
 
 #import <UIKit/UIKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
@@ -21,7 +23,7 @@
 
 static const NSTimeInterval kFadeDuration = 0.4;
 static const NSTimeInterval kMaxFullPlay  = 60.0;
-static const NSUInteger kFrameBufferSize  = 6;
+static const NSUInteger kFrameBufferSize  = 4;
 static char kSplashKey;
 static char kShownKey;
 
@@ -79,6 +81,83 @@ static NSString *CSVideoName(void) {
 
 static NSString *CSFramesDir(NSString *videoName) {
 	return [[kVideosDir stringByAppendingPathComponent:@".frames"] stringByAppendingPathComponent:videoName];
+}
+
+#pragma mark - Audio (SpringBoard)
+
+// AVFoundation is unusable inside CarPlay.app, so the soundtrack is played by SpringBoard,
+// whose audio goes to the car while CarPlay is connected. CarPlay.app drives it with
+// Darwin notifications when the first frame appears and when the splash goes away.
+#define kNotifyAudioPlay CFSTR("com.anlai.carsplash/audio.play")
+#define kNotifyAudioStop CFSTR("com.anlai.carsplash/audio.stop")
+
+static BOOL gIsCarPlay;
+static AVAudioPlayer *gAudioPlayer;
+static AVAudioSessionCategory gSavedCategory;
+static AVAudioSessionCategoryOptions gSavedOptions;
+
+static void CSPostNotification(CFStringRef name) {
+	CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, NULL, NULL, YES);
+}
+
+static void CSAudioRestoreSession(void) {
+	AVAudioSession *session = [AVAudioSession sharedInstance];
+	[session setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+	if (gSavedCategory) [session setCategory:gSavedCategory withOptions:gSavedOptions error:nil];
+	gSavedCategory = nil;
+}
+
+static void CSAudioStop(void) {
+	AVAudioPlayer *player = gAudioPlayer;
+	if (!player) return;
+	gAudioPlayer = nil;
+	[player setVolume:0 fadeDuration:kFadeDuration];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kFadeDuration * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		[player stop];
+		if (!gAudioPlayer) CSAudioRestoreSession();
+	});
+}
+
+static void CSAudioPlay(void) {
+	CFPreferencesAppSynchronize(kPrefsDomain);
+	if (![CSPref(@"sound", @NO) boolValue]) return;
+	NSString *name = CSVideoName();
+	if (!name) return;
+	NSString *path = [CSFramesDir(name) stringByAppendingPathComponent:@"audio.m4a"];
+	if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+		CSLog(@"audio: no soundtrack for %@", name);
+		return;
+	}
+
+	if (gAudioPlayer) [gAudioPlayer stop];
+	AVAudioSession *session = [AVAudioSession sharedInstance];
+	if (!gSavedCategory) {
+		gSavedCategory = session.category;
+		gSavedOptions = session.categoryOptions;
+	}
+	// Playback (not Ambient) so the ringer switch doesn't mute it; mix so car audio keeps going.
+	[session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
+	[session setActive:YES error:nil];
+
+	NSError *error = nil;
+	gAudioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:[NSURL fileURLWithPath:path] error:&error];
+	if (!gAudioPlayer) {
+		CSLog(@"audio: cannot open %@: %@", path, error);
+		CSAudioRestoreSession();
+		return;
+	}
+	// Loop along with the frames unless the clip plays exactly once.
+	gAudioPlayer.numberOfLoops = [CSPref(@"playFull", @NO) boolValue] ? 0 : -1;
+	BOOL ok = [gAudioPlayer play];
+	CSLog(@"audio: playing %@ ok=%d route=%@", path.lastPathComponent, ok, session.currentRoute.outputs.firstObject.portType);
+}
+
+static void CSAudioNotification(CFNotificationCenterRef center, void *observer, CFNotificationName name, const void *object, CFDictionaryRef info) {
+	BOOL play = CFStringCompare(name, kNotifyAudioPlay, 0) == kCFCompareEqualTo;
+	dispatch_async(dispatch_get_main_queue(), ^{
+		if (play) CSAudioPlay();
+		else CSAudioStop();
+	});
 }
 
 #pragma mark - Frames
@@ -251,6 +330,7 @@ static UIImage *CSDecodeFrame(NSString *path) {
 - (void)startCountdown {
 	NSTimeInterval limit = self.loop ? MAX(1.0, [CSPref(@"duration", @5) doubleValue]) : kMaxFullPlay;
 	CSLog(@"first frame shown, playing for up to %.0fs", limit);
+	CSPostNotification(kNotifyAudioPlay);
 
 	__weak __typeof(self) weakSelf = self;
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(limit * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -262,6 +342,7 @@ static UIImage *CSDecodeFrame(NSString *path) {
 	if (self.finished) return;
 	self.finished = YES;
 	CSLog(@"dismissing after %lu frames", (unsigned long)self.shownFrames);
+	CSPostNotification(kNotifyAudioStop);
 
 	[UIView animateWithDuration:kFadeDuration animations:^{
 		self.window.alpha = 0.0;
@@ -271,6 +352,8 @@ static UIImage *CSDecodeFrame(NSString *path) {
 }
 
 - (void)tearDown {
+	// Skipped by dismiss when CarPlay disconnects mid-splash.
+	if (!self.finished && self.shownFrames) CSPostNotification(kNotifyAudioStop);
 	self.finished = YES;
 	[self.displayLink invalidate];
 	self.displayLink = nil;
@@ -347,7 +430,7 @@ static void CSTearDownScreen(UIScreen *screen) {
 // posting the UIScene lifecycle notifications.
 - (void)setHidden:(BOOL)hidden {
 	%orig;
-	if (hidden || [self isKindOfClass:[CSSplashWindow class]]) return;
+	if (!gIsCarPlay || hidden || [self isKindOfClass:[CSSplashWindow class]]) return;
 	UIScreen *screen = self.screen;
 
 	// Diagnostics: record the first windows CarPlay shows and where they live.
@@ -368,7 +451,17 @@ static void CSTearDownScreen(UIScreen *screen) {
 %end
 
 %ctor {
-	CSLog(@"loaded into %@ (%@)", [NSBundle mainBundle].bundleIdentifier, [NSProcessInfo processInfo].processName);
+	NSString *bundleID = [NSBundle mainBundle].bundleIdentifier;
+	CSLog(@"loaded into %@ (%@)", bundleID, [NSProcessInfo processInfo].processName);
+
+	if ([bundleID isEqualToString:@"com.apple.springboard"]) {
+		CFNotificationCenterRef darwin = CFNotificationCenterGetDarwinNotifyCenter();
+		CFNotificationCenterAddObserver(darwin, NULL, CSAudioNotification, kNotifyAudioPlay, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+		CFNotificationCenterAddObserver(darwin, NULL, CSAudioNotification, kNotifyAudioStop, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+		return;
+	}
+	gIsCarPlay = YES;
+
 	for (UIScreen *screen in [UIScreen screens]) CSLog(@"existing screen: %@", CSDescribeScreen(screen));
 	CSLog(@"videos dir %@ readable=%d", kVideosDir, [[NSFileManager defaultManager] isReadableFileAtPath:kVideosDir]);
 
