@@ -52,10 +52,19 @@ jobs:
             exit 1
           fi
 
+      - name: Rename package
+        id: pkg
+        working-directory: src
+        run: |
+          VERSION=$(sed -n 's/^Version: *//p' control)
+          NAME="carsplash_${VERSION}_rootless"
+          mv packages/*.deb "packages/${NAME}.deb"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CarSplash-deb
+          name: ${{ steps.pkg.outputs.name }}
           path: src/packages/*.deb
           if-no-files-found: error
 
