@@ -2,6 +2,8 @@
 
 "LANGUAGE" = "Language";
 "HEADER_TAGLINE" = "Plays your own video on the CarPlay screen every time you connect to your car.";
+"STATUS_ON" = "On";
+"STATUS_OFF" = "Off";
 "VERSION_FORMAT" = "Version: %@";
 "COPYRIGHT" = "Copyright © 2026 AnLai";
 

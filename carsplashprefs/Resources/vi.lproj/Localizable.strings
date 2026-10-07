@@ -2,6 +2,8 @@
 
 "LANGUAGE" = "Ngôn ngữ";
 "HEADER_TAGLINE" = "Phát video của riêng bạn trên màn hình CarPlay mỗi khi kết nối với xe.";
+"STATUS_ON" = "Đang bật";
+"STATUS_OFF" = "Đang tắt";
 "VERSION_FORMAT" = "Phiên bản: %@";
 "COPYRIGHT" = "Bản quyền © 2026 AnLai";
 
