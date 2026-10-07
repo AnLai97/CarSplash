@@ -1,10 +1,11 @@
 /* CarSplash – Tiếng Việt */
 
 "LANGUAGE" = "Ngôn ngữ";
-"HEADER_TAGLINE" = "Video khởi động riêng cho màn hình CarPlay";
-"VERSION_FORMAT" = "Phiên bản %@";
+"HEADER_TAGLINE" = "Phát video của riêng bạn trên màn hình CarPlay mỗi khi kết nối với xe.";
+"VERSION_FORMAT" = "Phiên bản: %@";
+"COPYRIGHT" = "Bản quyền © 2026 AnLai";
 
-"GENERAL_FOOTER" = "Phát một đoạn video ngắn trên màn hình CarPlay trong lúc CarPlay khởi động. Thay đổi có hiệu lực ở lần kết nối CarPlay tiếp theo.";
+"GENERAL_FOOTER" = "Thay đổi có hiệu lực ở lần kết nối CarPlay tiếp theo.";
 "ENABLE" = "Bật CarSplash";
 
 "VIDEO_GROUP" = "Video";

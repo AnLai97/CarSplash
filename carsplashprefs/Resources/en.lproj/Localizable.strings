@@ -1,10 +1,11 @@
 /* CarSplash – English */
 
 "LANGUAGE" = "Language";
-"HEADER_TAGLINE" = "Your own startup video on CarPlay";
-"VERSION_FORMAT" = "Version %@";
+"HEADER_TAGLINE" = "Plays your own video on the CarPlay screen every time you connect to your car.";
+"VERSION_FORMAT" = "Version: %@";
+"COPYRIGHT" = "Copyright © 2026 AnLai";
 
-"GENERAL_FOOTER" = "Plays a short video on the CarPlay screen while CarPlay starts up. Changes apply the next time CarPlay connects.";
+"GENERAL_FOOTER" = "Changes apply the next time CarPlay connects.";
 "ENABLE" = "Enable CarSplash";
 
 "VIDEO_GROUP" = "Video";

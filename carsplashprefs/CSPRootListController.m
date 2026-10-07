@@ -230,85 +230,76 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	[self reloadSpecifiers];
 }
 
-// Hero header: app icon, name and tagline.
-- (UIView *)headerView {
-	UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 210)];
-	header.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+// A full-width table header/footer holding one rounded card: image on the left, text lines on the right.
+// The card follows the table's layout margins so it lines up with the inset-grouped rows.
+- (UIView *)cardContainerWithHeight:(CGFloat)height insets:(UIEdgeInsets)insets image:(UIImage *)image side:(CGFloat)side lines:(NSArray<UILabel *> *)lines {
+	UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, height)];
+	container.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+	container.preservesSuperviewLayoutMargins = YES;
 
-	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
-	UIImageView *logo = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"logo" inBundle:bundle compatibleWithTraitCollection:nil]];
-	logo.translatesAutoresizingMaskIntoConstraints = NO;
-	logo.layer.shadowColor = [UIColor colorWithRed:0.04 green:0.35 blue:0.97 alpha:1].CGColor;
-	logo.layer.shadowOpacity = 0.25;
-	logo.layer.shadowRadius = 12;
-	logo.layer.shadowOffset = CGSizeMake(0, 6);
+	UIView *card = [UIView new];
+	card.backgroundColor = CSPCardColor();
+	card.layer.cornerRadius = 20;
+	card.layer.cornerCurve = kCACornerCurveContinuous;
+	card.translatesAutoresizingMaskIntoConstraints = NO;
+	[container addSubview:card];
 
-	UILabel *title = [UILabel new];
-	title.text = @"CarSplash";
-	title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold];
-	title.textColor = [UIColor labelColor];
+	UIImageView *imageView = [[UIImageView alloc] initWithImage:image];
+	imageView.translatesAutoresizingMaskIntoConstraints = NO;
 
-	UILabel *tagline = [UILabel new];
-	tagline.text = L(@"HEADER_TAGLINE");
-	tagline.font = [UIFont systemFontOfSize:14];
-	tagline.textColor = [UIColor secondaryLabelColor];
-	tagline.textAlignment = NSTextAlignmentCenter;
-	tagline.numberOfLines = 0;
+	UIStackView *text = [[UIStackView alloc] initWithArrangedSubviews:lines];
+	text.axis = UILayoutConstraintAxisVertical;
+	text.spacing = 3;
 
-	UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[logo, title, tagline]];
-	stack.axis = UILayoutConstraintAxisVertical;
-	stack.alignment = UIStackViewAlignmentCenter;
-	stack.spacing = 6;
-	[stack setCustomSpacing:16 afterView:logo];
-	stack.translatesAutoresizingMaskIntoConstraints = NO;
-	[header addSubview:stack];
+	UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[imageView, text]];
+	row.alignment = UIStackViewAlignmentCenter;
+	row.spacing = 14;
+	row.translatesAutoresizingMaskIntoConstraints = NO;
+	[card addSubview:row];
 
+	UILayoutGuide *margins = container.layoutMarginsGuide;
 	[NSLayoutConstraint activateConstraints:@[
-		[logo.widthAnchor constraintEqualToConstant:80],
-		[logo.heightAnchor constraintEqualToConstant:80],
-		[stack.centerXAnchor constraintEqualToAnchor:header.centerXAnchor],
-		[stack.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
-		[stack.widthAnchor constraintLessThanOrEqualToAnchor:header.widthAnchor constant:-48],
+		[card.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
+		[card.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
+		[card.topAnchor constraintEqualToAnchor:container.topAnchor constant:insets.top],
+		[card.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-insets.bottom],
+		[imageView.widthAnchor constraintEqualToConstant:side],
+		[imageView.heightAnchor constraintEqualToConstant:side],
+		[row.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
+		[row.trailingAnchor constraintLessThanOrEqualToAnchor:card.trailingAnchor constant:-16],
+		[row.centerYAnchor constraintEqualToAnchor:card.centerYAnchor],
 	]];
-	return header;
+	return container;
 }
 
-// Quiet credit line at the bottom: author avatar, name and version.
-- (UIView *)footerView {
-	UIView *footer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 112)];
-	footer.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+- (UILabel *)labelWithText:(NSString *)text size:(CGFloat)size weight:(UIFontWeight)weight color:(UIColor *)color {
+	UILabel *label = [UILabel new];
+	label.text = text;
+	label.font = [UIFont systemFontOfSize:size weight:weight];
+	label.textColor = color;
+	label.numberOfLines = 0;
+	return label;
+}
 
+// Top card: app icon, name and description. The enable switch follows as the first row.
+- (UIView *)headerView {
 	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
-	UIImageView *avatar = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"avatar" inBundle:bundle compatibleWithTraitCollection:nil]];
-	avatar.translatesAutoresizingMaskIntoConstraints = NO;
-
-	UILabel *author = [UILabel new];
-	author.text = @"AnLai";
-	author.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-	author.textColor = [UIColor labelColor];
-
-	UILabel *version = [UILabel new];
-	version.text = [NSString stringWithFormat:L(@"VERSION_FORMAT"), @CSP_VERSION];
-	version.font = [UIFont systemFontOfSize:12];
-	version.textColor = [UIColor secondaryLabelColor];
-
-	UIStackView *text = [[UIStackView alloc] initWithArrangedSubviews:@[author, version]];
-	text.axis = UILayoutConstraintAxisVertical;
-	text.spacing = 1;
-
-	UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[avatar, text]];
-	stack.alignment = UIStackViewAlignmentCenter;
-	stack.spacing = 10;
-	stack.translatesAutoresizingMaskIntoConstraints = NO;
-	[footer addSubview:stack];
-
-	[NSLayoutConstraint activateConstraints:@[
-		[avatar.widthAnchor constraintEqualToConstant:32],
-		[avatar.heightAnchor constraintEqualToConstant:32],
-		[stack.centerXAnchor constraintEqualToAnchor:footer.centerXAnchor],
-		[stack.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
+	UIImage *logo = [UIImage imageNamed:@"logo" inBundle:bundle compatibleWithTraitCollection:nil];
+	return [self cardContainerWithHeight:128 insets:UIEdgeInsetsMake(16, 0, 0, 0) image:logo side:64 lines:@[
+		[self labelWithText:@"CarSplash" size:20 weight:UIFontWeightBold color:[UIColor labelColor]],
+		[self labelWithText:L(@"HEADER_TAGLINE") size:13 weight:UIFontWeightRegular color:[UIColor secondaryLabelColor]],
 	]];
-	return footer;
+}
+
+// Bottom card: author logo, app name, version/build and copyright.
+- (UIView *)footerView {
+	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+	UIImage *avatar = [UIImage imageNamed:@"avatar" inBundle:bundle compatibleWithTraitCollection:nil];
+	return [self cardContainerWithHeight:136 insets:UIEdgeInsetsMake(8, 0, 32, 0) image:avatar side:56 lines:@[
+		[self labelWithText:@"CarSplash" size:16 weight:UIFontWeightSemibold color:[UIColor labelColor]],
+		[self labelWithText:[NSString stringWithFormat:L(@"VERSION_FORMAT"), @CSP_VERSION] size:13 weight:UIFontWeightRegular color:[UIColor secondaryLabelColor]],
+		[self labelWithText:L(@"COPYRIGHT") size:13 weight:UIFontWeightRegular color:[UIColor secondaryLabelColor]],
+	]];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
