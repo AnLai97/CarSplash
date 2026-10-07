@@ -1,0 +1,44 @@
+/* CarSplash – Tiếng Việt */
+
+"LANGUAGE" = "Ngôn ngữ";
+"HEADER_TAGLINE" = "Video khởi động riêng cho màn hình CarPlay";
+"HEADER_VERSION" = "Phiên bản %@";
+
+"GENERAL_FOOTER" = "Phát một đoạn video ngắn trên màn hình CarPlay trong lúc CarPlay khởi động. Thay đổi có hiệu lực ở lần kết nối CarPlay tiếp theo.";
+"ENABLE" = "Bật CarSplash";
+
+"VIDEO_GROUP" = "Video";
+"VIDEO_FOOTER" = "Hỗ trợ MP4, MOV, M4V. Khi thêm video, CarSplash sẽ chuẩn bị video để phát trên CarPlay (tối đa 60 giây).";
+"CURRENT_VIDEO" = "Video đang dùng";
+"NO_VIDEO" = "(Chưa có video)";
+"IMPORT_PHOTOS" = "Thêm video từ Ảnh";
+"IMPORT_FILES" = "Thêm video từ Tệp";
+"PREVIEW" = "Xem thử video";
+"DELETE" = "Xoá video đang chọn";
+
+"DURATION_GROUP" = "Thời lượng (giây)";
+"DURATION_FOOTER" = "Nếu video ngắn hơn thời lượng đã chọn, video sẽ được lặp lại. Bật \"Phát hết video\" để bỏ qua thời lượng và tắt khi video kết thúc (tối đa 60 giây).";
+"PLAY_FULL" = "Phát hết video";
+
+"DISPLAY_GROUP" = "Hiển thị";
+"SCALE_FILL" = "Lấp đầy";
+"SCALE_FIT" = "Vừa khung";
+"SOUND" = "Phát âm thanh";
+"TAP_TO_SKIP" = "Chạm để bỏ qua";
+
+"ABOUT_GROUP" = "Thông tin";
+"ABOUT_FOOTER" = "Hỗ trợ iOS 15 trở lên, jailbreak rootless (Dopamine, palera1n). Gặp lỗi hoặc muốn góp ý, hãy gửi email cho tác giả.\n\n© 2026 AnLai";
+"VERSION" = "Phiên bản";
+"AUTHOR" = "AnLai";
+"REPORT" = "Báo lỗi / Góp ý";
+
+"PREPARING" = "Đang chuẩn bị video cho CarPlay";
+"PROCESS_FAILED" = "Không xử lý được video:\n%@";
+"SAVE_FAILED" = "Không thể lưu video: %@";
+"NO_VIDEO_PREVIEW" = "Chưa có video nào. Hãy thêm video trước.";
+"NO_VIDEO_DELETE" = "Chưa có video nào để xoá.";
+"DELETE_TITLE" = "Xoá video";
+"DELETE_CONFIRM" = "Xoá \"%@\"?";
+"DELETE_ACTION" = "Xoá";
+"CANCEL" = "Huỷ";
+"OK" = "OK";

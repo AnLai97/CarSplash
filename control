@@ -2,8 +2,23 @@ Package: carsplash-rootless
 Name: CarSplash
 Version: 1.0.0
 Architecture: iphoneos-arm64
-Description: Play a short splash video while CarPlay is starting up.
-Maintainer: anlai <laihoangan123456@gmail.com>
-Author: anlai <laihoangan123456@gmail.com>
+Description: Your own startup video on CarPlay.
+ Make every drive feel personal. CarSplash plays a video of your choice on the
+ CarPlay screen the moment your iPhone connects to the car - a brand intro, a
+ family clip, or anything you like.
+ .
+ Features:
+  - Add videos straight from Photos or Files (MP4, MOV, M4V)
+  - Choose how long the splash shows (1-30 seconds) or play the whole clip
+  - Fill or Fit to suit any car display
+  - Play the video's sound through the car speakers
+  - Tap the screen to skip at any time
+  - Preview and manage your videos right in Settings
+ .
+ Set it up in Settings > CarSplash. Changes apply the next time CarPlay connects.
+ .
+ Compatibility: iOS 15 and later, rootless jailbreaks (Dopamine, palera1n).
+Maintainer: AnLai <laihoangan123456@gmail.com>
+Author: AnLai <laihoangan123456@gmail.com>
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000), preferenceloader, firmware (>= 15.0)

@@ -1,5 +1,6 @@
 #import "CSPRootListController.h"
 #import <Preferences/PSSpecifier.h>
+#import <Preferences/PSTableCell.h>
 #import <UIKit/UIKit.h>
 #import <AVKit/AVKit.h>
 #import <AVFoundation/AVFoundation.h>
@@ -23,6 +24,85 @@ static const NSInteger kFramesVersion = 2;
 - (void)setValues:(NSArray *)values titles:(NSArray *)titles;
 @end
 
+#pragma mark - Localization
+
+// The app language is picked in the nav bar, so strings come from <lang>.lproj by hand
+// instead of following the system language.
+static NSDictionary<NSString *, NSString *> *sStrings;
+
+static NSArray<NSString *> *CSPLanguages(void) {
+	return @[@"vi", @"en"];
+}
+
+static NSString *CSPLanguageName(NSString *lang) {
+	return [lang isEqualToString:@"vi"] ? @"Tiếng Việt" : @"English";
+}
+
+static NSString *CSPLanguage(void) {
+	NSString *lang = (__bridge_transfer NSString *)CFPreferencesCopyAppValue(CFSTR("language"), kPrefsDomain);
+	if (lang && [CSPLanguages() containsObject:lang]) return lang;
+	return [[NSLocale preferredLanguages].firstObject hasPrefix:@"vi"] ? @"vi" : @"en";
+}
+
+static void CSPLoadStrings(void) {
+	NSString *bundlePath = [NSBundle bundleForClass:NSClassFromString(@"CSPRootListController")].bundlePath;
+	NSString *path = [bundlePath stringByAppendingFormat:@"/%@.lproj/Localizable.strings", CSPLanguage()];
+	sStrings = [NSDictionary dictionaryWithContentsOfFile:path] ?: @{};
+}
+
+static NSString *L(NSString *key) {
+	return sStrings[key] ?: key;
+}
+
+#pragma mark - HarmonyOS theme
+
+static UIColor *CSPDynamicColor(UInt32 light, UInt32 dark) {
+	UIColor *(^rgb)(UInt32) = ^(UInt32 v) {
+		return [UIColor colorWithRed:((v >> 16) & 0xFF) / 255.0 green:((v >> 8) & 0xFF) / 255.0 blue:(v & 0xFF) / 255.0 alpha:1];
+	};
+	UIColor *l = rgb(light), *d = rgb(dark);
+	return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+		return traits.userInterfaceStyle == UIUserInterfaceStyleDark ? d : l;
+	}];
+}
+
+static UIColor *CSPAccentColor(void)     { return CSPDynamicColor(0x0A59F7, 0x317AF7); }
+static UIColor *CSPBackgroundColor(void) { return CSPDynamicColor(0xF1F3F5, 0x000000); }
+static UIColor *CSPCardColor(void)       { return CSPDynamicColor(0xFFFFFF, 0x202224); }
+
+static UIColor *CSPColorFromHex(NSString *hex) {
+	unsigned int v = 0;
+	[[NSScanner scannerWithString:[hex stringByReplacingOccurrencesOfString:@"#" withString:@""]] scanHexInt:&v];
+	return [UIColor colorWithRed:((v >> 16) & 0xFF) / 255.0 green:((v >> 8) & 0xFF) / 255.0 blue:(v & 0xFF) / 255.0 alpha:1];
+}
+
+// Row icon: a white SF Symbol on a rounded, softly lit color tile.
+static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
+	UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:14 weight:UIImageSymbolWeightSemibold];
+	UIImage *glyph = [[UIImage systemImageNamed:symbol withConfiguration:config] imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+	if (!glyph) return nil;
+
+	const CGFloat side = 29;
+	UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side)];
+	return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+		CGRect rect = CGRectMake(0, 0, side, side);
+		UIBezierPath *tile = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:8.5];
+		[color setFill];
+		[tile fill];
+
+		[tile addClip];
+		CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+		NSArray *colors = @[(id)[UIColor colorWithWhite:1 alpha:0.22].CGColor, (id)[UIColor colorWithWhite:1 alpha:0].CGColor];
+		CGGradientRef gradient = CGGradientCreateWithColors(space, (__bridge CFArrayRef)colors, NULL);
+		CGContextDrawLinearGradient(ctx.CGContext, gradient, CGPointZero, CGPointMake(0, side), 0);
+		CGGradientRelease(gradient);
+		CGColorSpaceRelease(space);
+
+		CGSize s = glyph.size;
+		[glyph drawInRect:CGRectMake((side - s.width) / 2, (side - s.height) / 2, s.width, s.height)];
+	}];
+}
+
 @interface CSPRootListController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
 @property (nonatomic, assign) BOOL extracting;
 @end
@@ -33,15 +113,35 @@ static const NSInteger kFramesVersion = 2;
 
 - (NSArray *)specifiers {
 	if (!_specifiers) {
+		CSPLoadStrings();
 		_specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+		[self localizeSpecifiers:_specifiers];
 		[self refreshVideoList];
 	}
 	return _specifiers;
 }
 
-- (void)viewWillAppear:(BOOL)animated {
-	[super viewWillAppear:animated];
-	[self reloadSpecifiers];
+// Root.plist holds string keys; swap them for the chosen language and attach the row icons.
+- (void)localizeSpecifiers:(NSArray<PSSpecifier *> *)specifiers {
+	for (PSSpecifier *spec in specifiers) {
+		if (spec.name.length) spec.name = L(spec.name);
+		NSString *footer = [spec propertyForKey:@"footerText"];
+		if (footer) [spec setProperty:L(footer) forKey:@"footerText"];
+
+		if (spec.titleDictionary.count && ![spec.identifier isEqualToString:@"videoName"]) {
+			NSMutableDictionary *titles = [NSMutableDictionary dictionary];
+			[spec.titleDictionary enumerateKeysAndObjectsUsingBlock:^(id value, NSString *title, BOOL *stop) {
+				titles[value] = L(title);
+			}];
+			spec.titleDictionary = titles;
+		}
+
+		NSString *symbol = [spec propertyForKey:@"symbol"];
+		if (symbol) {
+			UIImage *icon = CSPIcon(symbol, CSPColorFromHex([spec propertyForKey:@"symbolColor"] ?: @"#0A59F7"));
+			if (icon) [spec setProperty:icon forKey:@"iconImage"];
+		}
+	}
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -77,8 +177,168 @@ static const NSInteger kFramesVersion = 2;
 		for (NSString *file in files) [titles addObject:[file stringByDeletingPathExtension]];
 		[spec setValues:files titles:titles];
 	} else {
-		[spec setValues:@[@""] titles:@[@"(Chưa có video)"]];
+		[spec setValues:@[@""] titles:@[L(@"NO_VIDEO")]];
 	}
+}
+
+#pragma mark - Appearance
+
+- (void)viewDidLoad {
+	[super viewDidLoad];
+	// Scoped to this controller so the rest of Settings keeps its own look.
+	[UISwitch appearanceWhenContainedInInstancesOfClasses:@[[self class]]].onTintColor = CSPAccentColor();
+	[UISlider appearanceWhenContainedInInstancesOfClasses:@[[self class]]].minimumTrackTintColor = CSPAccentColor();
+	[self applyLanguage];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+	[super viewWillAppear:animated];
+	[self reloadSpecifiers];
+	self.table.backgroundColor = CSPBackgroundColor();
+	self.table.tintColor = CSPAccentColor();
+}
+
+- (void)applyLanguage {
+	CSPLoadStrings();
+	self.title = @"CarSplash";
+	self.table.tableHeaderView = [self headerView];
+	self.navigationItem.rightBarButtonItem = [self languageButton];
+}
+
+- (UIBarButtonItem *)languageButton {
+	NSString *current = CSPLanguage();
+	NSMutableArray *actions = [NSMutableArray array];
+	for (NSString *lang in CSPLanguages()) {
+		UIAction *action = [UIAction actionWithTitle:CSPLanguageName(lang) image:nil identifier:nil handler:^(UIAction *a) {
+			[self setLanguage:lang];
+		}];
+		action.state = [lang isEqualToString:current] ? UIMenuElementStateOn : UIMenuElementStateOff;
+		[actions addObject:action];
+	}
+	UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"globe"] style:UIBarButtonItemStylePlain target:nil action:nil];
+	item.menu = [UIMenu menuWithTitle:L(@"LANGUAGE") children:actions];
+	item.tintColor = CSPAccentColor();
+	return item;
+}
+
+- (void)setLanguage:(NSString *)lang {
+	CFPreferencesSetAppValue(CFSTR("language"), (__bridge CFStringRef)lang, kPrefsDomain);
+	CFPreferencesAppSynchronize(kPrefsDomain);
+	[self applyLanguage];
+	_specifiers = nil;
+	[self reloadSpecifiers];
+}
+
+// Hero header: app icon, name, a version pill and the tagline.
+- (UIView *)headerView {
+	UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 232)];
+	header.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+	UIImageView *logo = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"logo" inBundle:bundle compatibleWithTraitCollection:nil]];
+	logo.translatesAutoresizingMaskIntoConstraints = NO;
+	logo.layer.shadowColor = [UIColor colorWithRed:0.04 green:0.35 blue:0.97 alpha:1].CGColor;
+	logo.layer.shadowOpacity = 0.25;
+	logo.layer.shadowRadius = 12;
+	logo.layer.shadowOffset = CGSizeMake(0, 6);
+
+	UILabel *title = [UILabel new];
+	title.text = @"CarSplash";
+	title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold];
+	title.textColor = [UIColor labelColor];
+
+	UILabel *version = [UILabel new];
+	version.text = [NSString stringWithFormat:L(@"HEADER_VERSION"), @CSP_VERSION];
+	version.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+	version.textColor = CSPAccentColor();
+	version.translatesAutoresizingMaskIntoConstraints = NO;
+	UIView *pill = [UIView new];
+	pill.backgroundColor = [CSPAccentColor() colorWithAlphaComponent:0.12];
+	pill.layer.cornerRadius = 11;
+	pill.layer.cornerCurve = kCACornerCurveContinuous;
+	[pill addSubview:version];
+
+	UILabel *tagline = [UILabel new];
+	tagline.text = L(@"HEADER_TAGLINE");
+	tagline.font = [UIFont systemFontOfSize:14];
+	tagline.textColor = [UIColor secondaryLabelColor];
+	tagline.textAlignment = NSTextAlignmentCenter;
+	tagline.numberOfLines = 0;
+
+	UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[logo, title, pill, tagline]];
+	stack.axis = UILayoutConstraintAxisVertical;
+	stack.alignment = UIStackViewAlignmentCenter;
+	stack.spacing = 8;
+	[stack setCustomSpacing:16 afterView:logo];
+	[stack setCustomSpacing:6 afterView:title];
+	[stack setCustomSpacing:10 afterView:pill];
+	stack.translatesAutoresizingMaskIntoConstraints = NO;
+	[header addSubview:stack];
+
+	[NSLayoutConstraint activateConstraints:@[
+		[logo.widthAnchor constraintEqualToConstant:80],
+		[logo.heightAnchor constraintEqualToConstant:80],
+		[version.topAnchor constraintEqualToAnchor:pill.topAnchor constant:4],
+		[version.bottomAnchor constraintEqualToAnchor:pill.bottomAnchor constant:-4],
+		[version.leadingAnchor constraintEqualToAnchor:pill.leadingAnchor constant:10],
+		[version.trailingAnchor constraintEqualToAnchor:pill.trailingAnchor constant:-10],
+		[stack.centerXAnchor constraintEqualToAnchor:header.centerXAnchor],
+		[stack.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+		[stack.widthAnchor constraintLessThanOrEqualToAnchor:header.widthAnchor constant:-48],
+	]];
+	return header;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+	UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
+	cell.backgroundColor = CSPCardColor();
+	cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
+
+	// Action rows read as regular navigation rows; only the destructive one stays red.
+	PSSpecifier *spec = [cell isKindOfClass:[PSTableCell class]] ? ((PSTableCell *)cell).specifier : nil;
+	if (spec.cellType == PSButtonCell) {
+		BOOL destructive = [[spec propertyForKey:@"isDestructive"] boolValue];
+		cell.textLabel.textColor = destructive ? [UIColor systemRedColor] : [UIColor labelColor];
+		cell.accessoryType = destructive ? UITableViewCellAccessoryNone : UITableViewCellAccessoryDisclosureIndicator;
+	}
+	return cell;
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayHeaderView:(UIView *)view forSection:(NSInteger)section {
+	if ([PSListController instancesRespondToSelector:_cmd]) [super tableView:tableView willDisplayHeaderView:view forSection:section];
+	if (![view isKindOfClass:[UITableViewHeaderFooterView class]]) return;
+	UILabel *label = ((UITableViewHeaderFooterView *)view).textLabel;
+	label.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+	label.textColor = [UIColor secondaryLabelColor];
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayFooterView:(UIView *)view forSection:(NSInteger)section {
+	if ([PSListController instancesRespondToSelector:_cmd]) [super tableView:tableView willDisplayFooterView:view forSection:section];
+	if (![view isKindOfClass:[UITableViewHeaderFooterView class]]) return;
+	UILabel *label = ((UITableViewHeaderFooterView *)view).textLabel;
+	label.font = [UIFont systemFontOfSize:12];
+	label.textColor = [UIColor secondaryLabelColor];
+}
+
+#pragma mark - About
+
+- (NSString *)versionString:(PSSpecifier *)specifier {
+	return @CSP_VERSION;
+}
+
+- (void)openURLString:(NSString *)string {
+	[[UIApplication sharedApplication] openURL:[NSURL URLWithString:string] options:@{} completionHandler:nil];
+}
+
+- (void)contactAuthor {
+	[self openURLString:@"mailto:laihoangan123456@gmail.com"];
+}
+
+- (void)reportIssue {
+	NSString *device = [UIDevice currentDevice].systemVersion;
+	NSString *subject = [NSString stringWithFormat:@"CarSplash %@ - iOS %@", @CSP_VERSION, device];
+	NSString *query = [subject stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+	[self openURLString:[@"mailto:laihoangan123456@gmail.com?subject=" stringByAppendingString:query]];
 }
 
 #pragma mark - Pref helpers
@@ -98,7 +358,7 @@ static const NSInteger kFramesVersion = 2;
 
 - (void)showMessage:(NSString *)message {
 	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"CarSplash" message:message preferredStyle:UIAlertControllerStyleAlert];
-	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+	[alert addAction:[UIAlertAction actionWithTitle:L(@"OK") style:UIAlertActionStyleDefault handler:nil]];
 	[self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -137,7 +397,7 @@ static const NSInteger kFramesVersion = 2;
 	self.extracting = YES;
 
 	UIAlertController *progress = [UIAlertController alertControllerWithTitle:@"CarSplash"
-	                                                                  message:@"Đang chuẩn bị video cho CarPlay…"
+	                                                                  message:[L(@"PREPARING") stringByAppendingString:@"…"]
 	                                                           preferredStyle:UIAlertControllerStyleAlert];
 	[self presentViewController:progress animated:YES completion:nil];
 
@@ -148,7 +408,7 @@ static const NSInteger kFramesVersion = 2;
 			NSError *error = nil;
 			BOOL ok = [self extractFramesForVideo:name error:&error progress:^(double fraction) {
 				dispatch_async(dispatch_get_main_queue(), ^{
-					progress.message = [NSString stringWithFormat:@"Đang chuẩn bị video cho CarPlay%@… %d%%", label, (int)(fraction * 100)];
+					progress.message = [NSString stringWithFormat:@"%@%@… %d%%", L(@"PREPARING"), label, (int)(fraction * 100)];
 				});
 			}];
 			if (!ok) [failed addObject:[NSString stringWithFormat:@"%@: %@", name, error.localizedDescription ?: @"?"]];
@@ -156,7 +416,7 @@ static const NSInteger kFramesVersion = 2;
 		dispatch_async(dispatch_get_main_queue(), ^{
 			self.extracting = NO;
 			[progress dismissViewControllerAnimated:YES completion:^{
-				if (failed.count) [self showMessage:[NSString stringWithFormat:@"Không xử lý được video:\n%@", [failed componentsJoinedByString:@"\n"]]];
+				if (failed.count) [self showMessage:[NSString stringWithFormat:L(@"PROCESS_FAILED"), [failed componentsJoinedByString:@"\n"]]];
 				if (completion) completion();
 			}];
 		});
@@ -291,7 +551,7 @@ static CGImagePropertyOrientation CSOrientationForTransform(CGAffineTransform t)
 
 	NSError *error = nil;
 	if (![fm copyItemAtPath:source.path toPath:dest error:&error]) {
-		[self showMessage:[NSString stringWithFormat:@"Không thể lưu video: %@", error.localizedDescription]];
+		[self showMessage:[NSString stringWithFormat:L(@"SAVE_FAILED"), error.localizedDescription]];
 		return;
 	}
 	[fm setAttributes:@{NSFilePosixPermissions: @0644} ofItemAtPath:dest error:nil];
@@ -303,7 +563,7 @@ static CGImagePropertyOrientation CSOrientationForTransform(CGAffineTransform t)
 
 - (void)previewVideo {
 	NSString *name = [self selectedVideo];
-	if (!name) { [self showMessage:@"Chưa có video nào. Hãy thêm video trước."]; return; }
+	if (!name) { [self showMessage:L(@"NO_VIDEO_PREVIEW")]; return; }
 
 	AVPlayerViewController *vc = [AVPlayerViewController new];
 	vc.player = [AVPlayer playerWithURL:[NSURL fileURLWithPath:[kVideosDir stringByAppendingPathComponent:name]]];
@@ -312,12 +572,12 @@ static CGImagePropertyOrientation CSOrientationForTransform(CGAffineTransform t)
 
 - (void)deleteVideo {
 	NSString *name = [self selectedVideo];
-	if (!name) { [self showMessage:@"Chưa có video nào để xoá."]; return; }
+	if (!name) { [self showMessage:L(@"NO_VIDEO_DELETE")]; return; }
 
-	NSString *message = [NSString stringWithFormat:@"Xoá \"%@\"?", [name stringByDeletingPathExtension]];
-	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Xoá video" message:message preferredStyle:UIAlertControllerStyleAlert];
-	[alert addAction:[UIAlertAction actionWithTitle:@"Huỷ" style:UIAlertActionStyleCancel handler:nil]];
-	[alert addAction:[UIAlertAction actionWithTitle:@"Xoá" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+	NSString *message = [NSString stringWithFormat:L(@"DELETE_CONFIRM"), [name stringByDeletingPathExtension]];
+	UIAlertController *alert = [UIAlertController alertControllerWithTitle:L(@"DELETE_TITLE") message:message preferredStyle:UIAlertControllerStyleAlert];
+	[alert addAction:[UIAlertAction actionWithTitle:L(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
+	[alert addAction:[UIAlertAction actionWithTitle:L(@"DELETE_ACTION") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
 		[[NSFileManager defaultManager] removeItemAtPath:[kVideosDir stringByAppendingPathComponent:name] error:nil];
 		[[NSFileManager defaultManager] removeItemAtPath:[self framesDirForVideo:name] error:nil];
 		[self setSelectedVideo:[self videoFiles].firstObject];

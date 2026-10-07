@@ -9,6 +9,6 @@ CarSplashPrefs_FILES = CSPRootListController.m
 CarSplashPrefs_FRAMEWORKS = UIKit AVFoundation AVKit UniformTypeIdentifiers CoreImage CoreMedia CoreVideo ImageIO
 CarSplashPrefs_PRIVATE_FRAMEWORKS = Preferences
 CarSplashPrefs_INSTALL_PATH = /Library/PreferenceBundles
-CarSplashPrefs_CFLAGS = -fobjc-arc
+CarSplashPrefs_CFLAGS = -fobjc-arc -DCSP_VERSION=\"$(shell sed -n 's/^Version: *//p' ../control)\"
 
 include $(THEOS_MAKE_PATH)/bundle.mk

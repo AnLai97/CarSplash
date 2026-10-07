@@ -1,0 +1,44 @@
+/* CarSplash – English */
+
+"LANGUAGE" = "Language";
+"HEADER_TAGLINE" = "Your own startup video on CarPlay";
+"HEADER_VERSION" = "Version %@";
+
+"GENERAL_FOOTER" = "Plays a short video on the CarPlay screen while CarPlay starts up. Changes apply the next time CarPlay connects.";
+"ENABLE" = "Enable CarSplash";
+
+"VIDEO_GROUP" = "Video";
+"VIDEO_FOOTER" = "Supports MP4, MOV and M4V. When you add a video, CarSplash prepares it for playback on CarPlay (up to 60 seconds).";
+"CURRENT_VIDEO" = "Current video";
+"NO_VIDEO" = "(No videos)";
+"IMPORT_PHOTOS" = "Add from Photos";
+"IMPORT_FILES" = "Add from Files";
+"PREVIEW" = "Preview video";
+"DELETE" = "Delete selected video";
+
+"DURATION_GROUP" = "Duration (seconds)";
+"DURATION_FOOTER" = "Videos shorter than the chosen duration loop. Turn on \"Play full video\" to ignore the duration and stop when the video ends (up to 60 seconds).";
+"PLAY_FULL" = "Play full video";
+
+"DISPLAY_GROUP" = "Display";
+"SCALE_FILL" = "Fill";
+"SCALE_FIT" = "Fit";
+"SOUND" = "Play sound";
+"TAP_TO_SKIP" = "Tap to skip";
+
+"ABOUT_GROUP" = "About";
+"ABOUT_FOOTER" = "Requires iOS 15 or later on a rootless jailbreak (Dopamine, palera1n). Found a bug or have an idea? Email the author.\n\n© 2026 AnLai";
+"VERSION" = "Version";
+"AUTHOR" = "AnLai";
+"REPORT" = "Report a bug / Feedback";
+
+"PREPARING" = "Preparing video for CarPlay";
+"PROCESS_FAILED" = "Couldn't process video:\n%@";
+"SAVE_FAILED" = "Couldn't save video: %@";
+"NO_VIDEO_PREVIEW" = "No videos yet. Add one first.";
+"NO_VIDEO_DELETE" = "There's no video to delete.";
+"DELETE_TITLE" = "Delete video";
+"DELETE_CONFIRM" = "Delete \"%@\"?";
+"DELETE_ACTION" = "Delete";
+"CANCEL" = "Cancel";
+"OK" = "OK";

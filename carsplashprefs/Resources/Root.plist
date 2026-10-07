@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Labels and footers are keys into <lang>.lproj/Localizable.strings; "symbol"/"symbolColor" draw the row icon. -->
 <plist version="1.0">
 <dict>
 	<key>title</key>
@@ -10,13 +11,17 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Phát một đoạn video ngắn trên màn hình CarPlay trong lúc CarPlay khởi động. Thay đổi có hiệu lực ở lần cắm CarPlay tiếp theo.</string>
+			<string>GENERAL_FOOTER</string>
 		</dict>
 		<dict>
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>label</key>
-			<string>Bật CarSplash</string>
+			<string>ENABLE</string>
+			<key>symbol</key>
+			<string>power</string>
+			<key>symbolColor</key>
+			<string>#41BA41</string>
 			<key>key</key>
 			<string>enabled</string>
 			<key>default</key>
@@ -29,9 +34,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Video</string>
+			<string>VIDEO_GROUP</string>
 			<key>footerText</key>
-			<string>Hỗ trợ .mp4, .mov, .m4v. Khi thêm video, CarSplash sẽ chuyển video thành ảnh để phát trên CarPlay (tối đa 60 giây). Video được lưu trong /var/jb/var/mobile/Library/CarSplash/Videos.</string>
+			<string>VIDEO_FOOTER</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -41,7 +46,11 @@
 			<key>id</key>
 			<string>videoName</string>
 			<key>label</key>
-			<string>Video đang dùng</string>
+			<string>CURRENT_VIDEO</string>
+			<key>symbol</key>
+			<string>film</string>
+			<key>symbolColor</key>
+			<string>#7B5CF5</string>
 			<key>key</key>
 			<string>videoName</string>
 			<key>defaults</key>
@@ -51,7 +60,11 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Thêm video từ Ảnh</string>
+			<string>IMPORT_PHOTOS</string>
+			<key>symbol</key>
+			<string>photo.on.rectangle</string>
+			<key>symbolColor</key>
+			<string>#F97A1F</string>
 			<key>action</key>
 			<string>importFromPhotos</string>
 		</dict>
@@ -59,7 +72,11 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Thêm video từ Tệp</string>
+			<string>IMPORT_FILES</string>
+			<key>symbol</key>
+			<string>folder.fill</string>
+			<key>symbolColor</key>
+			<string>#1E9BF0</string>
 			<key>action</key>
 			<string>importFromFiles</string>
 		</dict>
@@ -67,7 +84,11 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Xem thử video</string>
+			<string>PREVIEW</string>
+			<key>symbol</key>
+			<string>play.rectangle.fill</string>
+			<key>symbolColor</key>
+			<string>#0A59F7</string>
 			<key>action</key>
 			<string>previewVideo</string>
 		</dict>
@@ -75,7 +96,11 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Xoá video đang chọn</string>
+			<string>DELETE</string>
+			<key>symbol</key>
+			<string>trash.fill</string>
+			<key>symbolColor</key>
+			<string>#E84026</string>
 			<key>action</key>
 			<string>deleteVideo</string>
 			<key>isDestructive</key>
@@ -86,9 +111,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Thời lượng (giây)</string>
+			<string>DURATION_GROUP</string>
 			<key>footerText</key>
-			<string>Nếu video ngắn hơn thời lượng đã chọn, video sẽ được lặp lại. Bật "Phát hết video" để bỏ qua thời lượng và tắt khi video kết thúc (tối đa 60 giây).</string>
+			<string>DURATION_FOOTER</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -114,7 +139,11 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>label</key>
-			<string>Phát hết video</string>
+			<string>PLAY_FULL</string>
+			<key>symbol</key>
+			<string>repeat</string>
+			<key>symbolColor</key>
+			<string>#00A6B2</string>
 			<key>key</key>
 			<string>playFull</string>
 			<key>default</key>
@@ -127,7 +156,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Hiển thị</string>
+			<string>DISPLAY_GROUP</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -143,8 +172,8 @@
 			</array>
 			<key>validTitles</key>
 			<array>
-				<string>Lấp đầy</string>
-				<string>Vừa khung</string>
+				<string>SCALE_FILL</string>
+				<string>SCALE_FIT</string>
 			</array>
 			<key>defaults</key>
 			<string>com.anlai.carsplash</string>
@@ -153,7 +182,11 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>label</key>
-			<string>Phát âm thanh</string>
+			<string>SOUND</string>
+			<key>symbol</key>
+			<string>speaker.wave.2.fill</string>
+			<key>symbolColor</key>
+			<string>#E8457C</string>
 			<key>key</key>
 			<string>sound</string>
 			<key>default</key>
@@ -165,13 +198,60 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>label</key>
-			<string>Chạm để bỏ qua</string>
+			<string>TAP_TO_SKIP</string>
+			<key>symbol</key>
+			<string>hand.tap.fill</string>
+			<key>symbolColor</key>
+			<string>#FF9500</string>
 			<key>key</key>
 			<string>tapToSkip</string>
 			<key>default</key>
 			<true/>
 			<key>defaults</key>
 			<string>com.anlai.carsplash</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>ABOUT_GROUP</string>
+			<key>footerText</key>
+			<string>ABOUT_FOOTER</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSTitleValueCell</string>
+			<key>label</key>
+			<string>VERSION</string>
+			<key>symbol</key>
+			<string>tag.fill</string>
+			<key>symbolColor</key>
+			<string>#8A93A6</string>
+			<key>get</key>
+			<string>versionString:</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>AUTHOR</string>
+			<key>icon</key>
+			<string>avatar.png</string>
+			<key>action</key>
+			<string>contactAuthor</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>REPORT</string>
+			<key>symbol</key>
+			<string>envelope.fill</string>
+			<key>symbolColor</key>
+			<string>#0A59F7</string>
+			<key>action</key>
+			<string>reportIssue</string>
 		</dict>
 	</array>
 </dict>
