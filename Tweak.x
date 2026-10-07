@@ -20,7 +20,36 @@ static const NSTimeInterval kMaxFullPlay  = 60.0;
 static char kSplashKey;
 static char kShownKey;
 
-#define CSLog(fmt, ...) NSLog(@"[CarSplash] " fmt, ##__VA_ARGS__)
+#pragma mark - Logging
+
+// Logs go to syslog and to a file readable with Filza. If CarPlay's sandbox blocks the
+// Documents folder, fall back to /var/tmp.
+static NSString *const kLogPaths[] = { @"/var/mobile/Documents/CarSplash.log", @"/var/tmp/CarSplash.log" };
+
+static void CSLogWrite(NSString *message) {
+	NSLog(@"[CarSplash] %@", message);
+
+	static dispatch_queue_t queue;
+	static NSDateFormatter *df;
+	static dispatch_once_t once;
+	dispatch_once(&once, ^{
+		queue = dispatch_queue_create("com.anlai.carsplash.log", DISPATCH_QUEUE_SERIAL);
+		df = [NSDateFormatter new];
+		df.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS";
+	});
+	NSString *line = [NSString stringWithFormat:@"%@ [%d] %@\n", [df stringFromDate:[NSDate date]], getpid(), message];
+	dispatch_async(queue, ^{
+		for (size_t i = 0; i < sizeof(kLogPaths) / sizeof(kLogPaths[0]); i++) {
+			FILE *f = fopen(kLogPaths[i].fileSystemRepresentation, "a");
+			if (!f) continue;
+			fputs(line.UTF8String, f);
+			fclose(f);
+			break;
+		}
+	});
+}
+
+#define CSLog(fmt, ...) CSLogWrite([NSString stringWithFormat:fmt, ##__VA_ARGS__])
 
 #pragma mark - Preferences
 
@@ -147,6 +176,10 @@ static NSURL *CSVideoURL(void) {
 	}];
 
 	[self.player play];
+	CSLog(@"splash window shown: frame=%@ level=%.0f", NSStringFromCGRect(self.window.frame), self.window.windowLevel);
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		CSLog(@"player status=%ld error=%@", (long)item.status, item.error);
+	});
 
 	// Safety net: never block CarPlay longer than this, even if the video fails to load.
 	NSTimeInterval limit = playFull ? kMaxFullPlay : duration;
@@ -206,9 +239,18 @@ static void CSShowSplash(UIScreen *screen, UIWindowScene *scene, NSString *sourc
 	[splash start];
 }
 
+static NSString *CSDescribeScreen(UIScreen *screen) {
+	if (!screen) return @"(nil)";
+	return [NSString stringWithFormat:@"<%@ %p main=%d idiom=%ld bounds=%@>", NSStringFromClass([screen class]), screen,
+		screen == [UIScreen mainScreen], (long)screen.traitCollection.userInterfaceIdiom, NSStringFromCGRect(screen.bounds)];
+}
+
 static void CSHandleScene(UIScene *scene, NSString *source) {
+	CSLog(@"%@: %@ role=%@ idiom=%ld", source, NSStringFromClass([scene class]), scene.session.role,
+		(long)scene.traitCollection.userInterfaceIdiom);
 	if (![scene isKindOfClass:[UIWindowScene class]]) return;
 	UIWindowScene *windowScene = (UIWindowScene *)scene;
+	CSLog(@"%@: screen=%@", source, CSDescribeScreen(windowScene.screen));
 	CSShowSplash(windowScene.screen, windowScene, source);
 }
 
@@ -226,6 +268,15 @@ static void CSTearDownScreen(UIScreen *screen) {
 	%orig;
 	if (hidden || [self isKindOfClass:[CSSplashWindow class]]) return;
 	UIScreen *screen = self.screen;
+
+	// Diagnostics: record the first windows CarPlay shows and where they live.
+	static int logged = 0;
+	if (logged < 40) {
+		logged++;
+		CSLog(@"window shown: %@ level=%.0f scene=%@ screen=%@", NSStringFromClass([self class]), self.windowLevel,
+			self.windowScene ? NSStringFromClass([self.windowScene class]) : @"(nil)", CSDescribeScreen(screen));
+	}
+
 	if (!CSIsCarScreen(screen)) return;
 	UIWindowScene *scene = self.windowScene;
 	// Let CarPlay finish building its own windows first so ours ends up on top.
@@ -235,7 +286,10 @@ static void CSTearDownScreen(UIScreen *screen) {
 %end
 
 %ctor {
-	CSLog(@"loaded into %@", [NSBundle mainBundle].bundleIdentifier);
+	CSLog(@"loaded into %@ (%@)", [NSBundle mainBundle].bundleIdentifier, [NSProcessInfo processInfo].processName);
+	for (UIScreen *screen in [UIScreen screens]) CSLog(@"existing screen: %@", CSDescribeScreen(screen));
+	CSLog(@"videos dir %@ readable=%d", kVideosDir, [[NSFileManager defaultManager] isReadableFileAtPath:kVideosDir]);
+
 	NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
 	NSOperationQueue *main = [NSOperationQueue mainQueue];
 	[nc addObserverForName:UISceneWillConnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
@@ -247,9 +301,10 @@ static void CSTearDownScreen(UIScreen *screen) {
 		CSHandleScene(note.object, @"sceneActivate");
 	}];
 	[nc addObserverForName:UIScreenDidConnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
-		CSLog(@"screen connected: %@", note.object);
+		CSLog(@"screen connected: %@", CSDescribeScreen(note.object));
 	}];
 	[nc addObserverForName:UIScreenDidDisconnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
+		CSLog(@"screen disconnected: %@", CSDescribeScreen(note.object));
 		CSTearDownScreen(note.object);
 	}];
 	[nc addObserverForName:UISceneDidDisconnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
