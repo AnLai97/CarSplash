@@ -112,7 +112,11 @@ static NSURL *CSVideoURL(void) {
 			_window = [[CSSplashWindow alloc] initWithWindowScene:scene];
 		} else {
 			_window = [[CSSplashWindow alloc] initWithFrame:screen.bounds];
+			// No scene to attach to, so setScreen: is the only way onto the car display.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 			_window.screen = screen;
+#pragma clang diagnostic pop
 		}
 		_window.windowLevel = UIWindowLevelAlert + 1000;
 		_window.backgroundColor = [UIColor blackColor];
