@@ -1,9 +1,11 @@
 // CarSplash — play a short video over the CarPlay screen while CarPlay is starting.
 //
-// Injected into CarPlay.app (com.apple.CarPlayApp). Each time a car connects, CarPlay.app
-// connects a new UIWindowScene for the car display. We put a high-level window on top of
-// that scene, play the chosen video for the configured time, then fade it out to reveal
-// the CarPlay home screen underneath.
+// Injected into CarPlay.app (com.apple.CarPlayApp). Each time a car connects, a new UIScreen
+// (and, depending on the iOS build, a UIWindowScene) is created for the car display. We put a
+// high-level window on top of it, play the chosen video for the configured time, then fade it
+// out to reveal the CarPlay home screen underneath.
+//
+// Logs are prefixed with "[CarSplash]" — filter for it in Console.app to debug.
 
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
@@ -17,6 +19,8 @@ static const NSTimeInterval kFadeDuration = 0.4;
 static const NSTimeInterval kMaxFullPlay  = 60.0;
 static char kSplashKey;
 static char kShownKey;
+
+#define CSLog(fmt, ...) NSLog(@"[CarSplash] " fmt, ##__VA_ARGS__)
 
 #pragma mark - Preferences
 
@@ -33,7 +37,9 @@ static NSURL *CSVideoURL(void) {
 		if ([fm fileExistsAtPath:path]) return [NSURL fileURLWithPath:path];
 	}
 	// Fall back to the first video in the folder.
-	NSArray *files = [[fm contentsOfDirectoryAtPath:kVideosDir error:nil] sortedArrayUsingSelector:@selector(compare:)];
+	NSError *error = nil;
+	NSArray *files = [[fm contentsOfDirectoryAtPath:kVideosDir error:&error] sortedArrayUsingSelector:@selector(compare:)];
+	if (error) CSLog(@"cannot list %@: %@", kVideosDir, error);
 	for (NSString *file in files) {
 		if ([file hasPrefix:@"."]) continue;
 		return [NSURL fileURLWithPath:[kVideosDir stringByAppendingPathComponent:file]];
@@ -54,19 +60,26 @@ static NSURL *CSVideoURL(void) {
 
 #pragma mark - Splash
 
+// Marker class so the window hook below ignores our own window.
+@interface CSSplashWindow : UIWindow
+@end
+
+@implementation CSSplashWindow
+@end
+
 @interface CSSplash : NSObject
 @property (nonatomic, strong) UIWindow *window;
 @property (nonatomic, strong) AVPlayer *player;
 @property (nonatomic, strong) id endObserver;
-@property (nonatomic, weak) UIWindowScene *scene;
+@property (nonatomic, weak) UIScreen *screen;
 @property (nonatomic, assign) BOOL finished;
 @end
 
 @implementation CSSplash
 
-- (instancetype)initWithScene:(UIWindowScene *)scene videoURL:(NSURL *)url {
+- (instancetype)initWithScreen:(UIScreen *)screen scene:(UIWindowScene *)scene videoURL:(NSURL *)url {
 	if ((self = [super init])) {
-		_scene = scene;
+		_screen = screen;
 
 		BOOL sound    = [CSPref(@"sound", @NO) boolValue];
 		BOOL fit      = [CSPref(@"scaleMode", @0) integerValue] == 1;
@@ -85,7 +98,8 @@ static NSURL *CSVideoURL(void) {
 		// When a fixed duration is longer than the clip, loop it until time is up.
 		_player.actionAtItemEnd = playFull ? AVPlayerActionAtItemEndPause : AVPlayerActionAtItemEndNone;
 
-		CSPlayerView *playerView = [[CSPlayerView alloc] initWithFrame:scene.coordinateSpace.bounds];
+		CSPlayerView *playerView = [[CSPlayerView alloc] initWithFrame:screen.bounds];
+		playerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 		playerView.backgroundColor = [UIColor blackColor];
 		playerView.playerLayer.player = _player;
 		playerView.playerLayer.videoGravity = fit ? AVLayerVideoGravityResizeAspect : AVLayerVideoGravityResizeAspectFill;
@@ -93,7 +107,13 @@ static NSURL *CSVideoURL(void) {
 		UIViewController *vc = [UIViewController new];
 		vc.view = playerView;
 
-		_window = [[UIWindow alloc] initWithWindowScene:scene];
+		// CarPlay may or may not drive the car display through a UIWindowScene.
+		if (scene) {
+			_window = [[CSSplashWindow alloc] initWithWindowScene:scene];
+		} else {
+			_window = [[CSSplashWindow alloc] initWithFrame:screen.bounds];
+			_window.screen = screen;
+		}
 		_window.windowLevel = UIWindowLevelAlert + 1000;
 		_window.backgroundColor = [UIColor blackColor];
 		_window.rootViewController = vc;
@@ -148,49 +168,88 @@ static NSURL *CSVideoURL(void) {
 	self.endObserver = nil;
 	self.window.hidden = YES;
 	self.window = nil;
-	UIWindowScene *scene = self.scene;
-	if (scene) objc_setAssociatedObject(scene, &kSplashKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+	UIScreen *screen = self.screen;
+	if (screen) objc_setAssociatedObject(screen, &kSplashKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 @end
 
-#pragma mark - Scene handling
+#pragma mark - Car display detection
 
-static BOOL CSIsCarScene(UIWindowScene *scene) {
-	if (![scene isKindOfClass:[UIWindowScene class]]) return NO;
-	if (scene.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomCarPlay) return YES;
-	return scene.screen && scene.screen != [UIScreen mainScreen];
+static BOOL CSIsCarScreen(UIScreen *screen) {
+	if (!screen) return NO;
+	if (screen.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomCarPlay) return YES;
+	return screen != [UIScreen mainScreen];
 }
 
-static void CSShowSplash(UIWindowScene *scene) {
-	if (!CSIsCarScene(scene)) return;
-	// One splash per connection: a new scene object is created every time the car connects.
-	if (objc_getAssociatedObject(scene, &kShownKey)) return;
-	objc_setAssociatedObject(scene, &kShownKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+// Keyed on the car UIScreen: a new screen object is created every time the car connects,
+// so this gives one splash per connection whether CarPlay uses scenes or plain windows.
+static void CSShowSplash(UIScreen *screen, UIWindowScene *scene, NSString *source) {
+	if (!CSIsCarScreen(screen)) return;
+	if (objc_getAssociatedObject(screen, &kShownKey)) return;
+	objc_setAssociatedObject(screen, &kShownKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+	CSLog(@"car display detected via %@: screen=%@ scene=%@", source, screen, scene);
 
 	CFPreferencesAppSynchronize(kPrefsDomain);
-	if (![CSPref(@"enabled", @YES) boolValue]) return;
+	if (![CSPref(@"enabled", @YES) boolValue]) { CSLog(@"disabled in settings"); return; }
 
 	NSURL *url = CSVideoURL();
-	if (!url) return;
+	if (!url) { CSLog(@"no video found in %@", kVideosDir); return; }
+	CSLog(@"playing %@", url.path);
 
-	CSSplash *splash = [[CSSplash alloc] initWithScene:scene videoURL:url];
-	objc_setAssociatedObject(scene, &kSplashKey, splash, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+	CSSplash *splash = [[CSSplash alloc] initWithScreen:screen scene:scene videoURL:url];
+	objc_setAssociatedObject(screen, &kSplashKey, splash, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 	[splash start];
 }
 
+static void CSHandleScene(UIScene *scene, NSString *source) {
+	if (![scene isKindOfClass:[UIWindowScene class]]) return;
+	UIWindowScene *windowScene = (UIWindowScene *)scene;
+	CSShowSplash(windowScene.screen, windowScene, source);
+}
+
+static void CSTearDownScreen(UIScreen *screen) {
+	if (!screen) return;
+	CSSplash *splash = objc_getAssociatedObject(screen, &kSplashKey);
+	[splash tearDown];
+}
+
+%hook UIWindow
+
+// Fallback for CarPlay builds that put windows straight onto the car UIScreen without
+// posting the UIScene lifecycle notifications.
+- (void)setHidden:(BOOL)hidden {
+	%orig;
+	if (hidden || [self isKindOfClass:[CSSplashWindow class]]) return;
+	UIScreen *screen = self.screen;
+	if (!CSIsCarScreen(screen)) return;
+	UIWindowScene *scene = self.windowScene;
+	// Let CarPlay finish building its own windows first so ours ends up on top.
+	dispatch_async(dispatch_get_main_queue(), ^{ CSShowSplash(screen, scene, @"window"); });
+}
+
+%end
+
 %ctor {
+	CSLog(@"loaded into %@", [NSBundle mainBundle].bundleIdentifier);
 	NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-	void (^handler)(NSNotification *) = ^(NSNotification *note) {
-		UIWindowScene *scene = note.object;
-		// Let CarPlay finish building its own windows first so ours ends up on top.
-		dispatch_async(dispatch_get_main_queue(), ^{ CSShowSplash(scene); });
-	};
-	[nc addObserverForName:UISceneWillConnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:handler];
+	NSOperationQueue *main = [NSOperationQueue mainQueue];
+	[nc addObserverForName:UISceneWillConnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
+		UIScene *scene = note.object;
+		dispatch_async(dispatch_get_main_queue(), ^{ CSHandleScene(scene, @"sceneConnect"); });
+	}];
 	// Trait collection may not be resolved at connect time; retry once the scene activates.
-	[nc addObserverForName:UISceneDidActivateNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:handler];
-	[nc addObserverForName:UISceneDidDisconnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-		CSSplash *splash = objc_getAssociatedObject(note.object, &kSplashKey);
-		[splash tearDown];
+	[nc addObserverForName:UISceneDidActivateNotification object:nil queue:main usingBlock:^(NSNotification *note) {
+		CSHandleScene(note.object, @"sceneActivate");
+	}];
+	[nc addObserverForName:UIScreenDidConnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
+		CSLog(@"screen connected: %@", note.object);
+	}];
+	[nc addObserverForName:UIScreenDidDisconnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
+		CSTearDownScreen(note.object);
+	}];
+	[nc addObserverForName:UISceneDidDisconnectNotification object:nil queue:main usingBlock:^(NSNotification *note) {
+		UIScene *scene = note.object;
+		if ([scene isKindOfClass:[UIWindowScene class]]) CSTearDownScreen(((UIWindowScene *)scene).screen);
 	}];
 }
