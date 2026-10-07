@@ -1,0 +1,9 @@
+Package: com.innova.carsplash
+Name: CarSplash
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Play a short splash video while CarPlay is starting up.
+Maintainer: Innova EMB Team <embteam@vn.innova.com>
+Author: Innova EMB Team <embteam@vn.innova.com>
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000), preferenceloader, firmware (>= 15.0)
