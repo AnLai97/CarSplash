@@ -10,6 +10,7 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <rootless.h>
 
 #define kPrefsDomain CFSTR("com.anlai.carsplash")
@@ -89,6 +90,83 @@ static NSURL *CSVideoURL(void) {
 - (AVPlayerLayer *)playerLayer { return (AVPlayerLayer *)self.layer; }
 @end
 
+#pragma mark - Resource loader
+
+// iOS opens media in mediaserverd, whose sandbox can't read the jailbreak prefix, so a plain
+// file URL loads forever. Serve the bytes from our own process through a custom scheme instead.
+static NSString *const kLoaderScheme = @"carsplash";
+
+@interface CSVideoLoader : NSObject <AVAssetResourceLoaderDelegate>
+@property (nonatomic, copy) NSString *path;
+@property (nonatomic, strong) dispatch_queue_t queue;
+@property (nonatomic, assign) BOOL loggedFirstRequest;
+- (instancetype)initWithPath:(NSString *)path;
+- (AVURLAsset *)asset;
+@end
+
+@implementation CSVideoLoader
+
+- (instancetype)initWithPath:(NSString *)path {
+	if ((self = [super init])) {
+		_path = [path copy];
+		_queue = dispatch_queue_create("com.anlai.carsplash.loader", DISPATCH_QUEUE_SERIAL);
+	}
+	return self;
+}
+
+- (AVURLAsset *)asset {
+	NSURLComponents *components = [NSURLComponents new];
+	components.scheme = kLoaderScheme;
+	components.host = @"video";
+	components.path = [@"/" stringByAppendingString:self.path.lastPathComponent];
+	AVURLAsset *asset = [AVURLAsset URLAssetWithURL:components.URL options:nil];
+	[asset.resourceLoader setDelegate:self queue:self.queue];
+	return asset;
+}
+
+- (BOOL)resourceLoader:(AVAssetResourceLoader *)loader shouldWaitForLoadingOfRequestedResource:(AVAssetResourceLoadingRequest *)request {
+	NSFileHandle *file = [NSFileHandle fileHandleForReadingAtPath:self.path];
+	if (!file) {
+		CSLog(@"loader: cannot open %@", self.path);
+		[request finishLoadingWithError:[NSError errorWithDomain:NSPOSIXErrorDomain code:EACCES userInfo:nil]];
+		return YES;
+	}
+	unsigned long long size = [file seekToEndOfFile];
+
+	AVAssetResourceLoadingContentInformationRequest *info = request.contentInformationRequest;
+	if (info) {
+		UTType *type = [UTType typeWithFilenameExtension:self.path.pathExtension];
+		info.contentType = type.identifier ?: AVFileTypeQuickTimeMovie;
+		info.contentLength = (long long)size;
+		info.byteRangeAccessSupported = YES;
+	}
+
+	AVAssetResourceLoadingDataRequest *dataRequest = request.dataRequest;
+	if (!self.loggedFirstRequest) {
+		self.loggedFirstRequest = YES;
+		CSLog(@"loader: first request size=%llu type=%@ offset=%lld length=%ld", size, info.contentType,
+			dataRequest.requestedOffset, (long)dataRequest.requestedLength);
+	}
+	if (dataRequest) {
+		unsigned long long offset = (unsigned long long)dataRequest.requestedOffset;
+		unsigned long long end = dataRequest.requestsAllDataToEndOfResource ? size
+			: MIN(size, offset + (unsigned long long)dataRequest.requestedLength);
+		[file seekToFileOffset:offset];
+		while (offset < end && !request.isCancelled) {
+			NSUInteger chunk = (NSUInteger)MIN(end - offset, 1024 * 1024ULL);
+			NSData *data = [file readDataOfLength:chunk];
+			if (!data.length) break;
+			[dataRequest respondWithData:data];
+			offset += data.length;
+		}
+	}
+	[file closeFile];
+	[request finishLoading];
+	return YES;
+}
+
+@end
+
 #pragma mark - Splash
 
 // Marker class so the window hook below ignores our own window.
@@ -101,6 +179,8 @@ static NSURL *CSVideoURL(void) {
 @interface CSSplash : NSObject
 @property (nonatomic, strong) UIWindow *window;
 @property (nonatomic, strong) AVPlayer *player;
+// The resource loader only holds its delegate weakly.
+@property (nonatomic, strong) CSVideoLoader *loader;
 @property (nonatomic, strong) id endObserver;
 @property (nonatomic, weak) UIScreen *screen;
 @property (nonatomic, assign) BOOL finished;
@@ -126,7 +206,8 @@ static NSURL *CSVideoURL(void) {
 			                                       error:nil];
 		}
 
-		_player = [AVPlayer playerWithURL:url];
+		_loader = [[CSVideoLoader alloc] initWithPath:url.path];
+		_player = [AVPlayer playerWithPlayerItem:[AVPlayerItem playerItemWithAsset:[_loader asset]]];
 		_player.muted = !sound;
 		// When a fixed duration is longer than the clip, loop it until time is up.
 		_player.actionAtItemEnd = playFull ? AVPlayerActionAtItemEndPause : AVPlayerActionAtItemEndNone;
@@ -197,9 +278,8 @@ static NSURL *CSVideoURL(void) {
 }
 
 - (void)logAsset:(AVAsset *)asset {
-	NSURL *url = [asset isKindOfClass:[AVURLAsset class]] ? ((AVURLAsset *)asset).URL : nil;
-	NSDictionary *attrs = url ? [[NSFileManager defaultManager] attributesOfItemAtPath:url.path error:nil] : nil;
-	CSLog(@"video file size=%@", attrs[NSFileSize]);
+	NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:self.loader.path error:nil];
+	CSLog(@"video file size=%@ asset=%@", attrs[NSFileSize], [asset isKindOfClass:[AVURLAsset class]] ? ((AVURLAsset *)asset).URL : asset);
 	[asset loadValuesAsynchronouslyForKeys:@[@"playable", @"tracks"] completionHandler:^{
 		NSError *error = nil;
 		AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&error];
