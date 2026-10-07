@@ -246,11 +246,11 @@ static NSString *CSDescribeScreen(UIScreen *screen) {
 }
 
 static void CSHandleScene(UIScene *scene, NSString *source) {
-	CSLog(@"%@: %@ role=%@ idiom=%ld", source, NSStringFromClass([scene class]), scene.session.role,
-		(long)scene.traitCollection.userInterfaceIdiom);
+	CSLog(@"%@: %@ role=%@", source, NSStringFromClass([scene class]), scene.session.role);
 	if (![scene isKindOfClass:[UIWindowScene class]]) return;
 	UIWindowScene *windowScene = (UIWindowScene *)scene;
-	CSLog(@"%@: screen=%@", source, CSDescribeScreen(windowScene.screen));
+	CSLog(@"%@: idiom=%ld screen=%@", source, (long)windowScene.traitCollection.userInterfaceIdiom,
+		CSDescribeScreen(windowScene.screen));
 	CSShowSplash(windowScene.screen, windowScene, source);
 }
 
