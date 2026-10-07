@@ -202,6 +202,7 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	CSPLoadStrings();
 	self.title = @"CarSplash";
 	self.table.tableHeaderView = [self headerView];
+	self.table.tableFooterView = [self footerView];
 	self.navigationItem.rightBarButtonItem = [self languageButton];
 }
 
@@ -229,9 +230,9 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	[self reloadSpecifiers];
 }
 
-// Hero header: app icon, name, a version pill and the tagline.
+// Hero header: app icon, name and tagline.
 - (UIView *)headerView {
-	UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 232)];
+	UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 210)];
 	header.autoresizingMask = UIViewAutoresizingFlexibleWidth;
 
 	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
@@ -247,17 +248,6 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	title.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold];
 	title.textColor = [UIColor labelColor];
 
-	UILabel *version = [UILabel new];
-	version.text = [NSString stringWithFormat:L(@"HEADER_VERSION"), @CSP_VERSION];
-	version.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-	version.textColor = CSPAccentColor();
-	version.translatesAutoresizingMaskIntoConstraints = NO;
-	UIView *pill = [UIView new];
-	pill.backgroundColor = [CSPAccentColor() colorWithAlphaComponent:0.12];
-	pill.layer.cornerRadius = 11;
-	pill.layer.cornerCurve = kCACornerCurveContinuous;
-	[pill addSubview:version];
-
 	UILabel *tagline = [UILabel new];
 	tagline.text = L(@"HEADER_TAGLINE");
 	tagline.font = [UIFont systemFontOfSize:14];
@@ -265,28 +255,60 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	tagline.textAlignment = NSTextAlignmentCenter;
 	tagline.numberOfLines = 0;
 
-	UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[logo, title, pill, tagline]];
+	UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[logo, title, tagline]];
 	stack.axis = UILayoutConstraintAxisVertical;
 	stack.alignment = UIStackViewAlignmentCenter;
-	stack.spacing = 8;
+	stack.spacing = 6;
 	[stack setCustomSpacing:16 afterView:logo];
-	[stack setCustomSpacing:6 afterView:title];
-	[stack setCustomSpacing:10 afterView:pill];
 	stack.translatesAutoresizingMaskIntoConstraints = NO;
 	[header addSubview:stack];
 
 	[NSLayoutConstraint activateConstraints:@[
 		[logo.widthAnchor constraintEqualToConstant:80],
 		[logo.heightAnchor constraintEqualToConstant:80],
-		[version.topAnchor constraintEqualToAnchor:pill.topAnchor constant:4],
-		[version.bottomAnchor constraintEqualToAnchor:pill.bottomAnchor constant:-4],
-		[version.leadingAnchor constraintEqualToAnchor:pill.leadingAnchor constant:10],
-		[version.trailingAnchor constraintEqualToAnchor:pill.trailingAnchor constant:-10],
 		[stack.centerXAnchor constraintEqualToAnchor:header.centerXAnchor],
 		[stack.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
 		[stack.widthAnchor constraintLessThanOrEqualToAnchor:header.widthAnchor constant:-48],
 	]];
 	return header;
+}
+
+// Quiet credit line at the bottom: author avatar, name and version.
+- (UIView *)footerView {
+	UIView *footer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 112)];
+	footer.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+	NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+	UIImageView *avatar = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"avatar" inBundle:bundle compatibleWithTraitCollection:nil]];
+	avatar.translatesAutoresizingMaskIntoConstraints = NO;
+
+	UILabel *author = [UILabel new];
+	author.text = @"AnLai";
+	author.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+	author.textColor = [UIColor labelColor];
+
+	UILabel *version = [UILabel new];
+	version.text = [NSString stringWithFormat:L(@"VERSION_FORMAT"), @CSP_VERSION];
+	version.font = [UIFont systemFontOfSize:12];
+	version.textColor = [UIColor secondaryLabelColor];
+
+	UIStackView *text = [[UIStackView alloc] initWithArrangedSubviews:@[author, version]];
+	text.axis = UILayoutConstraintAxisVertical;
+	text.spacing = 1;
+
+	UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[avatar, text]];
+	stack.alignment = UIStackViewAlignmentCenter;
+	stack.spacing = 10;
+	stack.translatesAutoresizingMaskIntoConstraints = NO;
+	[footer addSubview:stack];
+
+	[NSLayoutConstraint activateConstraints:@[
+		[avatar.widthAnchor constraintEqualToConstant:32],
+		[avatar.heightAnchor constraintEqualToConstant:32],
+		[stack.centerXAnchor constraintEqualToAnchor:footer.centerXAnchor],
+		[stack.centerYAnchor constraintEqualToAnchor:footer.centerYAnchor],
+	]];
+	return footer;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -318,27 +340,6 @@ static UIImage *CSPIcon(NSString *symbol, UIColor *color) {
 	UILabel *label = ((UITableViewHeaderFooterView *)view).textLabel;
 	label.font = [UIFont systemFontOfSize:12];
 	label.textColor = [UIColor secondaryLabelColor];
-}
-
-#pragma mark - About
-
-- (NSString *)versionString:(PSSpecifier *)specifier {
-	return @CSP_VERSION;
-}
-
-- (void)openURLString:(NSString *)string {
-	[[UIApplication sharedApplication] openURL:[NSURL URLWithString:string] options:@{} completionHandler:nil];
-}
-
-- (void)contactAuthor {
-	[self openURLString:@"mailto:laihoangan123456@gmail.com"];
-}
-
-- (void)reportIssue {
-	NSString *device = [UIDevice currentDevice].systemVersion;
-	NSString *subject = [NSString stringWithFormat:@"CarSplash %@ - iOS %@", @CSP_VERSION, device];
-	NSString *query = [subject stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-	[self openURLString:[@"mailto:laihoangan123456@gmail.com?subject=" stringByAppendingString:query]];
 }
 
 #pragma mark - Pref helpers

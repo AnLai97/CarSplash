@@ -2,7 +2,7 @@
 
 "LANGUAGE" = "Ngôn ngữ";
 "HEADER_TAGLINE" = "Video khởi động riêng cho màn hình CarPlay";
-"HEADER_VERSION" = "Phiên bản %@";
+"VERSION_FORMAT" = "Phiên bản %@";
 
 "GENERAL_FOOTER" = "Phát một đoạn video ngắn trên màn hình CarPlay trong lúc CarPlay khởi động. Thay đổi có hiệu lực ở lần kết nối CarPlay tiếp theo.";
 "ENABLE" = "Bật CarSplash";
@@ -25,12 +25,6 @@
 "SCALE_FIT" = "Vừa khung";
 "SOUND" = "Phát âm thanh";
 "TAP_TO_SKIP" = "Chạm để bỏ qua";
-
-"ABOUT_GROUP" = "Thông tin";
-"ABOUT_FOOTER" = "Hỗ trợ iOS 15 trở lên, jailbreak rootless (Dopamine, palera1n). Gặp lỗi hoặc muốn góp ý, hãy gửi email cho tác giả.\n\n© 2026 AnLai";
-"VERSION" = "Phiên bản";
-"AUTHOR" = "AnLai";
-"REPORT" = "Báo lỗi / Góp ý";
 
 "PREPARING" = "Đang chuẩn bị video cho CarPlay";
 "PROCESS_FAILED" = "Không xử lý được video:\n%@";

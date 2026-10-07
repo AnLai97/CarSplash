@@ -210,49 +210,6 @@
 			<key>defaults</key>
 			<string>com.anlai.carsplash</string>
 		</dict>
-
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>ABOUT_GROUP</string>
-			<key>footerText</key>
-			<string>ABOUT_FOOTER</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSTitleValueCell</string>
-			<key>label</key>
-			<string>VERSION</string>
-			<key>symbol</key>
-			<string>tag.fill</string>
-			<key>symbolColor</key>
-			<string>#8A93A6</string>
-			<key>get</key>
-			<string>versionString:</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>label</key>
-			<string>AUTHOR</string>
-			<key>icon</key>
-			<string>avatar.png</string>
-			<key>action</key>
-			<string>contactAuthor</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>label</key>
-			<string>REPORT</string>
-			<key>symbol</key>
-			<string>envelope.fill</string>
-			<key>symbolColor</key>
-			<string>#0A59F7</string>
-			<key>action</key>
-			<string>reportIssue</string>
-		</dict>
 	</array>
 </dict>
 </plist>

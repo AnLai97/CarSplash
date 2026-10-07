@@ -2,7 +2,7 @@
 
 "LANGUAGE" = "Language";
 "HEADER_TAGLINE" = "Your own startup video on CarPlay";
-"HEADER_VERSION" = "Version %@";
+"VERSION_FORMAT" = "Version %@";
 
 "GENERAL_FOOTER" = "Plays a short video on the CarPlay screen while CarPlay starts up. Changes apply the next time CarPlay connects.";
 "ENABLE" = "Enable CarSplash";
@@ -25,12 +25,6 @@
 "SCALE_FIT" = "Fit";
 "SOUND" = "Play sound";
 "TAP_TO_SKIP" = "Tap to skip";
-
-"ABOUT_GROUP" = "About";
-"ABOUT_FOOTER" = "Requires iOS 15 or later on a rootless jailbreak (Dopamine, palera1n). Found a bug or have an idea? Email the author.\n\n© 2026 AnLai";
-"VERSION" = "Version";
-"AUTHOR" = "AnLai";
-"REPORT" = "Report a bug / Feedback";
 
 "PREPARING" = "Preparing video for CarPlay";
 "PROCESS_FAILED" = "Couldn't process video:\n%@";
